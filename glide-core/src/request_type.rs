@@ -441,6 +441,12 @@ pub enum RequestType {
     FtInfo = 2111,
     FtProfile = 2112,
     FtSearch = 2113,
+
+    //// DMA commands
+    DmaGet = 2200,
+    DmaSet = 2201,
+    DmaHello = 2202,
+    DmaInfo = 2203,
 }
 
 fn get_two_word_command(first: &str, second: &str) -> Cmd {
@@ -838,6 +844,10 @@ impl From<::protobuf::EnumOrUnknown<ProtobufRequestType>> for RequestType {
             ProtobufRequestType::SetEx => RequestType::SetEx,
             ProtobufRequestType::PSetEx => RequestType::PSetEx,
             ProtobufRequestType::SetNX => RequestType::SetNX,
+            ProtobufRequestType::DmaGet => RequestType::DmaGet,
+            ProtobufRequestType::DmaSet => RequestType::DmaSet,
+            ProtobufRequestType::DmaHello => RequestType::DmaHello,
+            ProtobufRequestType::DmaInfo => RequestType::DmaInfo,
             _ => RequestType::InvalidRequest,
         }
     }
@@ -1424,6 +1434,10 @@ impl RequestType {
             RequestType::SetEx => Some(cmd("SETEX")),
             RequestType::PSetEx => Some(cmd("PSETEX")),
             RequestType::SetNX => Some(cmd("SETNX")),
+            RequestType::DmaGet => Some(cmd("DMA.GET")),
+            RequestType::DmaSet => Some(cmd("DMA.SET")),
+            RequestType::DmaHello => Some(cmd("DMA.HELLO")),
+            RequestType::DmaInfo => Some(cmd("DMA.INFO")),
             _ => None,
         }
     }

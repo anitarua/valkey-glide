@@ -490,6 +490,13 @@ enum RequestType {
     FtInfo                         = 2111;
     FtProfile                      = 2112;
     FtSearch                       = 2113;
+
+    //// DMA commands (valkey-dma module)
+
+    DmaGet                         = 2200;
+    DmaSet                         = 2201;
+    DmaHello                       = 2202;
+    DmaInfo                        = 2203;
 }
 
 message Command {
@@ -554,6 +561,18 @@ enum CacheMetricsType {
     TotalLookups = 5;
 }
 
+// A DMA request means the value moves over the RDMA fabric rather than in the RESP reply.
+message DmaCommand {
+    RequestType request_type = 1;
+    bytes key = 2;
+    uint64 registered_region_id = 3;
+    // Window within the region where the value should be stored (GET) or read from (SET).
+    uint64 offset = 4;
+    // GET buffer capacity, SET payload length.
+    uint64 length = 5;
+    bool checksum = 6;
+}
+
 message CommandRequest {
     uint32 callback_idx = 1;
 
@@ -566,6 +585,7 @@ message CommandRequest {
         UpdateConnectionPassword update_connection_password = 7;
         RefreshIamToken refresh_iam_token = 8;
         GetCacheMetrics get_cache_metrics = 9;
+        DmaCommand dma_command = 12;
     }
     Routes route = 10;
     optional uint64 root_span_ptr = 11;
