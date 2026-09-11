@@ -60,6 +60,33 @@ impl DmaSetting {
     pub fn is_requested(&self) -> bool {
         !matches!(self, DmaSetting::Absent)
     }
+
+    /// A fragment for the connection log, empty when DMA was not requested.
+    pub fn log_summary(&self) -> String {
+        match self {
+            DmaSetting::Absent => String::new(),
+            DmaSetting::Rejected(reason) => format!("\nDMA: unavailable ({reason})"),
+            #[cfg(feature = "dma")]
+            DmaSetting::Configured(config) => {
+                let interface = config
+                    .fabric
+                    .interface()
+                    .map(|interface| format!(", interface: {interface}"))
+                    .unwrap_or_default();
+                let bind = config
+                    .fabric
+                    .bind()
+                    .map(|bind| format!(", bind: {bind}"))
+                    .unwrap_or_default();
+                format!(
+                    "\nDMA: {:?}{interface}{bind}, slots: {}, buffer size: {}",
+                    config.fabric.provider(),
+                    config.slots,
+                    config.buffer_size
+                )
+            }
+        }
+    }
 }
 
 /// Check that a requested DMA configuration can be honored before connecting.
@@ -100,6 +127,39 @@ mod tests {
             validate(&setting).unwrap_err(),
             DmaUnavailable::NoProviderConfigured
         );
+    }
+
+    #[test]
+    fn an_absent_setting_logs_nothing() {
+        assert!(DmaSetting::Absent.log_summary().is_empty());
+    }
+
+    #[cfg(feature = "dma")]
+    #[test]
+    fn a_configured_setting_logs_its_provider_and_sizing() {
+        let setting = DmaSetting::Configured(DmaConfig {
+            fabric: FabricConfig::new(Provider::Tcp).with_interface("lo0"),
+            slots: 4,
+            buffer_size: 1 << 20,
+        });
+        let summary = setting.log_summary();
+        assert!(summary.contains("Tcp"), "{summary}");
+        assert!(summary.contains("lo0"), "{summary}");
+        assert!(summary.contains("slots: 4"), "{summary}");
+        assert!(summary.contains("1048576"), "{summary}");
+    }
+
+    #[cfg(feature = "dma")]
+    #[test]
+    fn unset_fabric_options_are_omitted_from_the_log() {
+        let setting = DmaSetting::Configured(DmaConfig {
+            fabric: FabricConfig::new(Provider::EfaDirect),
+            slots: 1,
+            buffer_size: 1024,
+        });
+        let summary = setting.log_summary();
+        assert!(!summary.contains("interface"), "{summary}");
+        assert!(!summary.contains("bind"), "{summary}");
     }
 
     #[test]

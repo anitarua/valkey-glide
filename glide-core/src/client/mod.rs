@@ -2711,8 +2711,10 @@ fn sanitized_request_string(request: &ConnectionRequest) -> String {
         })
         .unwrap_or_default();
 
+    let dma = request.dma.log_summary();
+
     format!(
-        "\nAddresses: {addresses}{tls_mode}{cluster_mode}{request_timeout}{connection_timeout}{rfr_strategy}{connection_retry_strategy}{database_id}{protocol}{client_name}{periodic_checks}{pubsub_subscriptions}{inflight_requests_limit}{recovery_requests_queue_size}{node_discovery_mode}{client_cert_paths}{cert_reload}",
+        "\nAddresses: {addresses}{tls_mode}{cluster_mode}{request_timeout}{connection_timeout}{rfr_strategy}{connection_retry_strategy}{database_id}{protocol}{client_name}{periodic_checks}{pubsub_subscriptions}{inflight_requests_limit}{recovery_requests_queue_size}{node_discovery_mode}{client_cert_paths}{cert_reload}{dma}",
     )
 }
 
