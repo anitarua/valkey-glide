@@ -2539,6 +2539,13 @@ pub enum ConnectionError {
     Timeout,
     IoError(std::io::Error),
     Configuration(String),
+    Dma(crate::dma::DmaUnavailable),
+}
+
+impl From<crate::dma::DmaUnavailable> for ConnectionError {
+    fn from(reason: crate::dma::DmaUnavailable) -> Self {
+        ConnectionError::Dma(reason)
+    }
 }
 
 impl std::fmt::Debug for ConnectionError {
@@ -2549,6 +2556,7 @@ impl std::fmt::Debug for ConnectionError {
             Self::IoError(arg0) => f.debug_tuple("IoError").field(arg0).finish(),
             Self::Timeout => write!(f, "Timeout"),
             Self::Configuration(arg0) => f.debug_tuple("Configuration").field(arg0).finish(),
+            Self::Dma(arg0) => f.debug_tuple("Dma").field(arg0).finish(),
         }
     }
 }
@@ -2561,6 +2569,7 @@ impl std::fmt::Display for ConnectionError {
             ConnectionError::IoError(err) => write!(f, "{err}"),
             ConnectionError::Timeout => f.write_str("connection attempt timed out"),
             ConnectionError::Configuration(msg) => write!(f, "configuration error: {msg}"),
+            ConnectionError::Dma(reason) => write!(f, "DMA unavailable: {reason}"),
         }
     }
 }
@@ -2744,6 +2753,9 @@ impl Client {
         if let Some(lib_ver) = request.lib_ver.as_deref() {
             validate_effective_lib_ver(lib_ver).map_err(ConnectionError::Configuration)?;
         }
+
+        // Validate the DMA configuration before connecting, if present.
+        crate::dma::validate(&request.dma)?;
 
         // Add buffer to connection_timeout to allow inner connection logic to fully execute before the outer timeout triggers
         let client_creation_timeout = request.get_connection_timeout() + Duration::from_millis(500);

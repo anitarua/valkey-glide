@@ -14,6 +14,7 @@ use crate::compression::CompressionBackendType;
 use crate::compression::CompressionConfig;
 #[cfg(feature = "proto")]
 use crate::connection_request as protobuf;
+use crate::dma::{DmaSetting, DmaUnavailable};
 use crate::iam::ServiceType;
 #[cfg(feature = "proto")]
 #[allow(unused_imports)]
@@ -53,6 +54,9 @@ pub struct ConnectionRequest {
     /// Optional automatic reload configuration for the path-based client cert/key.
     pub cert_reload: Option<CertReloadConfig>,
     pub compression_config: Option<CompressionConfig>,
+    /// Direct memory access. `None` means the feature is entirely off.
+    /// What the request asked of DMA. `Absent` means the feature is off.
+    pub dma: DmaSetting,
     pub tcp_nodelay: bool,
     pub pubsub_reconciliation_interval_ms: Option<u32>,
     pub read_only: bool,
@@ -227,6 +231,47 @@ fn chars_to_string_option(chars: &::protobuf::Chars) -> Option<String> {
 #[cfg(feature = "proto")]
 pub(crate) fn none_if_zero(value: u32) -> Option<u32> {
     if value == 0 { None } else { Some(value) }
+}
+
+/// Convert the protobuf DMA configuration into what this build can honor.
+#[cfg(all(feature = "proto", not(feature = "dma")))]
+fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
+    match config {
+        None => DmaSetting::Absent,
+        Some(_) => DmaSetting::Rejected(DmaUnavailable::NotCompiledIn),
+    }
+}
+
+/// Convert the protobuf DMA configuration into glide-dma's own `FabricConfig`.
+#[cfg(all(feature = "proto", feature = "dma"))]
+fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
+    use crate::dma::{DmaConfig, FabricConfig, Provider};
+
+    let Some(config) = config else {
+        return DmaSetting::Absent;
+    };
+    let Some(provider) = config.provider.as_ref() else {
+        return DmaSetting::Rejected(DmaUnavailable::NoProviderConfigured);
+    };
+    let fabric = match provider {
+        protobuf::dma_config::Provider::EfaDirect(_) => FabricConfig::new(Provider::EfaDirect),
+        protobuf::dma_config::Provider::Tcp(tcp) => {
+            let fabric = FabricConfig::new(Provider::Tcp);
+            match tcp.bind.as_ref() {
+                Some(bind) => fabric.with_bind(bind.to_string()),
+                None => fabric,
+            }
+        }
+    };
+    let fabric = match config.interface.as_ref() {
+        Some(interface) => fabric.with_interface(interface.to_string()),
+        None => fabric,
+    };
+    DmaSetting::Configured(DmaConfig {
+        fabric,
+        slots: config.slots,
+        buffer_size: config.buffer_size,
+    })
 }
 
 #[cfg(feature = "proto")]
@@ -471,6 +516,8 @@ impl From<protobuf::ConnectionRequest> for ConnectionRequest {
             }
         });
 
+        let dma = convert_dma(value.dma_config.as_ref());
+
         let tcp_nodelay = value.tcp_nodelay.unwrap_or(true);
         let pubsub_reconciliation_interval_ms =
             value.pubsub_reconciliation_interval_ms.filter(|&v| v != 0);
@@ -515,6 +562,7 @@ impl From<protobuf::ConnectionRequest> for ConnectionRequest {
             client_key_path,
             cert_reload,
             compression_config,
+            dma,
             tcp_nodelay,
             pubsub_reconciliation_interval_ms,
             read_only,
