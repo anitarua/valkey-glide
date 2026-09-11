@@ -6,13 +6,13 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 
 use ofi_libfabric_sys::bindgen::{
-    fi_addr_t, fi_allocinfo, fi_av_attr, fi_av_insert, fi_av_open, fi_av_type_FI_AV_MAP, fi_close,
-    fi_cq_attr, fi_cq_format_FI_CQ_FORMAT_CONTEXT, fi_cq_open, fi_domain, fi_dupinfo, fi_enable,
-    fi_endpoint, fi_ep_bind, fi_ep_type_FI_EP_RDM, fi_fabric, fi_freeinfo, fi_getinfo, fi_getname,
-    fi_info, fi_mr_key, fi_mr_reg, fi_strerror, fi_version, fid_av, fid_cq, fid_domain, fid_ep,
-    fid_fabric, fid_mr, FI_CONTEXT2, FI_MR_ALLOCATED, FI_MR_LOCAL, FI_MR_PROV_KEY, FI_MR_VIRT_ADDR,
-    FI_MSG, FI_READ, FI_RECV, FI_REMOTE_READ, FI_REMOTE_WRITE, FI_RMA, FI_SOURCE, FI_TRANSMIT,
-    FI_WRITE,
+    FI_CONTEXT2, FI_MR_ALLOCATED, FI_MR_LOCAL, FI_MR_PROV_KEY, FI_MR_VIRT_ADDR, FI_MSG, FI_READ,
+    FI_RECV, FI_REMOTE_READ, FI_REMOTE_WRITE, FI_RMA, FI_SOURCE, FI_TRANSMIT, FI_WRITE, fi_addr_t,
+    fi_allocinfo, fi_av_attr, fi_av_insert, fi_av_open, fi_av_type_FI_AV_MAP, fi_close, fi_cq_attr,
+    fi_cq_format_FI_CQ_FORMAT_CONTEXT, fi_cq_open, fi_domain, fi_dupinfo, fi_enable, fi_endpoint,
+    fi_ep_bind, fi_ep_type_FI_EP_RDM, fi_fabric, fi_freeinfo, fi_getinfo, fi_getname, fi_info,
+    fi_mr_key, fi_mr_reg, fi_strerror, fi_version, fid_av, fid_cq, fid_domain, fid_ep, fid_fabric,
+    fid_mr,
 };
 
 use crate::config::{FabricConfig, Provider};
@@ -546,7 +546,7 @@ impl Drop for LibfabricEndpoint {
 
 #[cfg(test)]
 mod tests {
-    use super::{check, query_info, LibfabricEndpoint};
+    use super::{LibfabricEndpoint, check, query_info};
     use crate::config::{FabricConfig, Provider};
     use crate::error::DmaError;
     use ofi_libfabric_sys::bindgen::fi_freeinfo;

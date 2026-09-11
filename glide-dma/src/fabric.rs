@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::advertisement::Advertisement;
 use crate::buffer::DmaBuffer;
 use crate::config::FabricConfig;
-use crate::endpoint::{domain_names, query_info, LibfabricEndpoint, Registration};
+use crate::endpoint::{LibfabricEndpoint, Registration, domain_names, query_info};
 use crate::error::DmaError;
 use crate::progress::{ProgressDriver, ProgressGuard};
 
@@ -171,7 +171,7 @@ pub fn discover_domains(config: &FabricConfig) -> Result<Vec<String>, DmaError> 
 
 #[cfg(test)]
 mod tests {
-    use super::{discover_domains, DmaFabric};
+    use super::{DmaFabric, discover_domains};
     use crate::config::{FabricConfig, Provider};
     use std::sync::Arc;
 
@@ -209,6 +209,10 @@ mod tests {
             .expect("registration failed");
         assert_eq!(buffer.capacity(), 4096);
         assert_eq!(buffer.advertisement().address, fabric.local_address());
+        assert!(
+            !buffer.advertisement().address.is_empty(),
+            "an enabled endpoint has an address to advertise"
+        );
     }
 
     /// tcp addresses by offset, so the region starts at 0 rather than at its virtual
@@ -247,6 +251,13 @@ mod tests {
 
     /// A registration keeps the domain alive, so dropping the fabric first must be
     /// safe: the buffer still holds a clone.
+    /// tcp emulates RMA in software, so a transfer only progresses while the target
+    /// polls. efa-direct needs no driver and would return None.
+    #[test]
+    fn tcp_drives_progress() {
+        assert!(fabric().drive_progress().is_some());
+    }
+
     #[test]
     fn a_buffer_outlives_the_fabric_handle_it_came_from() {
         let buffer = fabric().register(vec![0u8; 1024]).unwrap();
