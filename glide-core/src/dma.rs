@@ -55,6 +55,13 @@ pub enum DmaUnavailable {
     Fabric(#[from] glide_dma::DmaError),
 }
 
+impl DmaSetting {
+    /// Whether the request asked for DMA at all
+    pub fn is_requested(&self) -> bool {
+        !matches!(self, DmaSetting::Absent)
+    }
+}
+
 /// Check that a requested DMA configuration can be honored before connecting.
 #[cfg(not(feature = "dma"))]
 pub fn validate(setting: &DmaSetting) -> Result<(), DmaUnavailable> {

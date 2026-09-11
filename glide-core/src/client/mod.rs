@@ -2754,6 +2754,23 @@ impl Client {
             validate_effective_lib_ver(lib_ver).map_err(ConnectionError::Configuration)?;
         }
 
+        // Do not allow compression with DMA since DMA reads/writes values
+        // directly from the server and mixing GET/SET with compression with
+        // DMA.GET/DMA.SET would lead to inconsistent data.
+        if request.dma.is_requested()
+            && request
+                .compression_config
+                .as_ref()
+                .is_some_and(|compression| compression.enabled)
+        {
+            return Err(ConnectionError::Configuration(
+                "DMA and compression cannot be enabled on the same client: DMA.GET \
+                 transfers stored bytes directly and does not decompress them. \
+                 Use separate clients, one per feature."
+                    .to_string(),
+            ));
+        }
+
         // Validate the DMA configuration before connecting, if present.
         crate::dma::validate(&request.dma)?;
 
@@ -3196,6 +3213,69 @@ mod tests {
 
         assert!(matches!(error, ConnectionError::Configuration(_)));
         assert!(error.to_string().contains("library name"));
+    }
+
+    #[tokio::test]
+    async fn test_new_rejects_dma_combined_with_compression() {
+        use crate::compression::{CompressionBackendType, CompressionConfig};
+        use crate::dma::{DmaSetting, DmaUnavailable};
+
+        let request = ConnectionRequest {
+            addresses: vec![NodeAddress {
+                host: "127.0.0.1".to_string(),
+                port: 1,
+            }],
+            lazy_connect: true,
+            dma: DmaSetting::Rejected(DmaUnavailable::NotCompiledIn),
+            compression_config: Some(CompressionConfig::new(CompressionBackendType::Zstd)),
+            ..Default::default()
+        };
+
+        let error = match Client::new(request, None).await {
+            Ok(_) => panic!("DMA with compression should fail client creation"),
+            Err(error) => error,
+        };
+
+        assert!(
+            matches!(error, ConnectionError::Configuration(_)),
+            "{error:?}"
+        );
+        let message = error.to_string();
+        assert!(message.contains("compression"), "{message}");
+        assert!(
+            !message.contains("DMA-capable build"),
+            "the conflict must be reported, not DMA availability: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_new_allows_dma_with_compression_configured_but_disabled() {
+        use crate::compression::{CompressionBackendType, CompressionConfig};
+        use crate::dma::{DmaSetting, DmaUnavailable};
+
+        let mut compression = CompressionConfig::new(CompressionBackendType::Zstd);
+        compression.enabled = false;
+
+        let request = ConnectionRequest {
+            addresses: vec![NodeAddress {
+                host: "127.0.0.1".to_string(),
+                port: 1,
+            }],
+            lazy_connect: true,
+            dma: DmaSetting::Rejected(DmaUnavailable::NotCompiledIn),
+            compression_config: Some(compression),
+            ..Default::default()
+        };
+
+        let error = match Client::new(request, None).await {
+            Ok(_) => panic!("DMA is still unavailable in this build"),
+            Err(error) => error,
+        };
+
+        assert!(
+            !error.to_string().contains("compression"),
+            "disabled compression must not be reported as a conflict: {error}"
+        );
     }
 
     #[test]
