@@ -1,0 +1,28 @@
+[package]
+name = "glide-dma"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["Valkey GLIDE Maintainers"]
+description = "Direct memory access (RDMA-over-fabric) support for Valkey GLIDE"
+
+[features]
+default = []
+# The libfabric data path. Off by default: libfabric is a native
+# dependency that is only meaningful on hosts with a fabric.
+libfabric = ["dep:ofi-libfabric-sys"]
+
+[dependencies]
+crc-fast = { version = "1.10", default-features = false, features = ["std"] }
+redis = { path = "../glide-core/redis-rs/redis" }
+thiserror = "2"
+
+# Pinned until ofiwg publishes a release carrying macOS support
+ofi-libfabric-sys = { git = "https://github.com/ofiwg/libfabric", rev = "6953579a5035", optional = true }
+
+[dev-dependencies]
+# Integration tests build DMA commands as a caller would, against the same fork.
+redis = { path = "../glide-core/redis-rs/redis" }
+
+[lints.clippy]
+mutex_atomic = "warn"
