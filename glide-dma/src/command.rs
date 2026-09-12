@@ -80,6 +80,11 @@ impl DmaGetOptions {
         self.checksum = true;
         self
     }
+
+    /// Whether a checksum was asked for.
+    pub fn checksum_requested(&self) -> bool {
+        self.checksum
+    }
 }
 
 /// A `DMA.*` command: its name, and its arguments in wire order.
