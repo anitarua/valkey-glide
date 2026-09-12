@@ -83,6 +83,59 @@ pub fn parse_hello(reply: Value) -> Result<Vec<Vec<u8>>, DmaError> {
         .collect()
 }
 
+/// The server's fabric attributes, as reported by `DMA.INFO`.
+/// The reply is an array of `"key: value"` strings.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DmaInfo {
+    fields: std::collections::BTreeMap<String, String>,
+}
+
+impl DmaInfo {
+    /// The raw value reported for `key`, if the server reported one.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.fields.get(key).map(String::as_str)
+    }
+
+    /// The provider the server opened, e.g. `efa-direct`.
+    pub fn provider(&self) -> Option<&str> {
+        self.get("provider")
+    }
+
+    /// Whether the server addresses remote memory by virtual address.
+    pub fn uses_virtual_addressing(&self) -> Option<bool> {
+        match self.get("uses_virtual_addressing")?.trim() {
+            "true" | "1" | "yes" => Some(true),
+            "false" | "0" | "no" => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Every attribute the server reported, in name order.
+    pub fn fields(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.fields.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+}
+
+/// Parse `DMA.INFO` into the server's fabric attributes.
+pub fn parse_info(reply: Value) -> Result<DmaInfo, DmaError> {
+    let lines: Vec<String> = redis::from_redis_value(&reply)
+        .map_err(|error| DmaError::Protocol(format!("dma.info: {error}")))?;
+
+    let mut fields = std::collections::BTreeMap::new();
+    for line in lines {
+        if let Some((key, value)) = line.split_once(':') {
+            fields.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+
+    if fields.is_empty() {
+        return Err(DmaError::Protocol(
+            "dma.info returned no readable attributes".into(),
+        ));
+    }
+    Ok(DmaInfo { fields })
+}
+
 /// Translate a DMA failure into the error type the rest of GLIDE carries.
 impl From<DmaError> for RedisError {
     fn from(error: DmaError) -> Self {
@@ -103,8 +156,8 @@ impl From<DmaError> for RedisError {
 #[cfg(test)]
 mod tests {
     use super::{
-        DmaGetOptions, DmaSetOptions, get_command, hello_command, parse_hello, parse_receipt,
-        set_command,
+        DmaGetOptions, DmaSetOptions, get_command, hello_command, parse_hello, parse_info,
+        parse_receipt, set_command,
     };
     use crate::advertisement::Advertisement;
     use crate::error::DmaError;
@@ -223,5 +276,58 @@ mod tests {
         .into();
         assert_eq!(fabric.kind(), ErrorKind::IoError);
         assert!(fabric.to_string().contains("errno -12"));
+    }
+
+    #[test]
+    fn info_parses_the_reported_attributes() {
+        let reply = Value::Array(vec![
+            Value::BulkString("provider: efa-direct".into()),
+            Value::BulkString("addr_format: FI_ADDR_EFA".into()),
+            Value::BulkString("mr_mode: 0x7 [LOCAL|VIRT_ADDR|ALLOCATED]".into()),
+            Value::BulkString("requires_local_mr: true".into()),
+            Value::BulkString("uses_virtual_addressing: true".into()),
+        ]);
+        let info = parse_info(reply).expect("parses");
+        assert_eq!(info.provider(), Some("efa-direct"));
+        assert_eq!(info.uses_virtual_addressing(), Some(true));
+        assert_eq!(info.get("requires_local_mr"), Some("true"));
+        // A value containing a colon must survive: only the first one splits.
+        assert_eq!(info.get("mr_mode"), Some("0x7 [LOCAL|VIRT_ADDR|ALLOCATED]"));
+    }
+
+    /// tcp addresses by offset rather than virtual address, so the two sides
+    /// must agree before any transfer.
+    #[test]
+    fn info_reads_offset_addressing() {
+        let reply = Value::Array(vec![
+            Value::BulkString("provider: tcp".into()),
+            Value::BulkString("uses_virtual_addressing: false".into()),
+        ]);
+        let info = parse_info(reply).expect("parses");
+        assert_eq!(info.provider(), Some("tcp"));
+        assert_eq!(info.uses_virtual_addressing(), Some(false));
+    }
+
+    #[test]
+    fn unreported_addressing_is_not_false() {
+        let reply = Value::Array(vec![Value::BulkString("provider: tcp".into())]);
+        assert_eq!(parse_info(reply).unwrap().uses_virtual_addressing(), None);
+
+        let odd = Value::Array(vec![
+            Value::BulkString("provider: tcp".into()),
+            Value::BulkString("uses_virtual_addressing: perhaps".into()),
+        ]);
+        assert_eq!(parse_info(odd).unwrap().uses_virtual_addressing(), None);
+    }
+
+    #[test]
+    fn an_unreadable_info_reply_is_an_error() {
+        assert!(parse_info(Value::Array(vec![])).is_err());
+        assert!(
+            parse_info(Value::Array(vec![Value::BulkString(
+                "no colon here".into()
+            )]))
+            .is_err()
+        );
     }
 }

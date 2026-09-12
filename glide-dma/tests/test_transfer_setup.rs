@@ -10,7 +10,7 @@
 #![cfg(feature = "libfabric")]
 
 use glide_dma::{
-    checksum, encode_hex, set_command, DmaFabric, DmaSetOptions, FabricConfig, Provider,
+    DmaFabric, DmaSetOptions, FabricConfig, Provider, checksum, encode_hex, set_command,
 };
 
 /// The whole client-side sequence short of the transfer itself.

@@ -37,6 +37,15 @@ impl Provider {
         matches!(self, Provider::EfaDirect)
     }
 
+    /// Whether `reported` names this provider.
+    pub fn matches_reported(self, reported: &str) -> bool {
+        let reported = reported.trim();
+        reported.eq_ignore_ascii_case(self.as_str())
+            || self
+                .fabric_name()
+                .is_some_and(|name| reported.eq_ignore_ascii_case(name))
+    }
+
     /// Whether a passive target must poll its completion queue for inbound RMA to make
     /// progress. False on `efa-direct`, where the NIC services it.
     pub(crate) fn needs_manual_progress(self) -> bool {
@@ -107,6 +116,28 @@ mod tests {
         for provider in [Provider::EfaDirect, Provider::Tcp] {
             assert_eq!(FabricConfig::new(provider).provider(), provider);
         }
+    }
+
+    /// The server may describe efa-direct either way. Rejecting one spelling
+    /// would block every correctly configured EFA client.
+    #[test]
+    #[cfg(feature = "libfabric")]
+    fn a_provider_matches_both_of_its_names() {
+        assert!(Provider::EfaDirect.matches_reported("efa"));
+        assert!(Provider::EfaDirect.matches_reported("efa-direct"));
+        assert!(Provider::EfaDirect.matches_reported(" EFA-Direct "));
+        assert!(Provider::Tcp.matches_reported("tcp"));
+    }
+
+    /// A genuine mismatch must still be caught: no transfer between a tcp
+    /// client and an efa server can succeed.
+    #[test]
+    #[cfg(feature = "libfabric")]
+    fn different_providers_do_not_match() {
+        assert!(!Provider::Tcp.matches_reported("efa"));
+        assert!(!Provider::Tcp.matches_reported("efa-direct"));
+        assert!(!Provider::EfaDirect.matches_reported("tcp"));
+        assert!(!Provider::EfaDirect.matches_reported(""));
     }
 
     #[test]

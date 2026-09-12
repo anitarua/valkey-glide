@@ -35,6 +35,6 @@ pub use fabric::{DmaFabric, discover_domains};
 pub use progress::ProgressGuard;
 
 pub use protocol::{
-    get_command, hello_command, info_command, parse_hello, parse_receipt, redis_command,
-    set_command,
+    DmaInfo, get_command, hello_command, info_command, parse_hello, parse_info, parse_receipt,
+    redis_command, set_command,
 };
