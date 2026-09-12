@@ -392,6 +392,10 @@ pub struct ClientShared {
     // lifetime because the server's inserted peer addresses point at it.
     #[cfg(feature = "dma")]
     dma: Option<glide_dma::DmaFabric>,
+    // Serialises DMA operations because only 1 DMA can be happening per
+    // client instance at a time.
+    #[cfg(feature = "dma")]
+    dma_slot: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Clone)]
@@ -2970,6 +2974,8 @@ impl Client {
                     client_side_cache,
                     #[cfg(feature = "dma")]
                     dma: dma.as_ref().map(|(fabric, _)| fabric.clone()),
+                    #[cfg(feature = "dma")]
+                    dma_slot: Arc::new(tokio::sync::Semaphore::new(1)),
                     latency_tracker: Arc::new(crate::timeout_watchdog::LatencyTracker::new(4096)),
                     circuit_breaker: request.client_circuit_breaker.as_ref().map(|config| {
                         let defaults = circuit_breaker::ClientCircuitBreakerConfig::default();
@@ -3115,14 +3121,149 @@ impl Client {
     pub fn register_dma_buffer(
         &self,
         memory: impl AsMut<[u8]> + Send + 'static,
-    ) -> Result<glide_dma::DmaBuffer, glide_dma::DmaError> {
-        let fabric = self.dma.as_ref().ok_or_else(|| {
+    ) -> Result<glide_dma::DmaBuffer, redis::RedisError> {
+        Ok(self.require_dma_fabric()?.register(memory)?)
+    }
+
+    /// Read a value directly into registered memory.
+    ///
+    /// The RESP response includes a byte count and a checksum if requested.
+    /// `Ok(None)` means the key does not exist. `Ok(Some(receipt))` means the
+    /// bytes are already in `buffer` by the time this returns.
+    #[cfg(feature = "dma")]
+    pub async fn dma_get(
+        &mut self,
+        key: &[u8],
+        buffer: &mut glide_dma::DmaBuffer,
+        options: &glide_dma::DmaGetOptions,
+    ) -> Result<Option<glide_dma::TransferReceipt>, redis::RedisError> {
+        let fabric = self.dma_fabric_for(buffer)?;
+        let capacity = buffer.capacity();
+        let command = glide_dma::get_command(buffer.advertisement(), key, capacity, options);
+
+        let Some(receipt) = self.dma_transfer(&fabric, command).await? else {
+            return Ok(None);
+        };
+
+        if receipt.bytes_written > capacity {
+            return Err(glide_dma::DmaError::PayloadTooLarge {
+                value_bytes: receipt.bytes_written,
+                capacity,
+            }
+            .into());
+        }
+
+        if options.checksum_requested() {
+            let reported = receipt.checksum.ok_or_else(|| {
+                glide_dma::DmaError::Protocol(
+                    "a checksum was requested but the server returned none".to_string(),
+                )
+            })?;
+            let landed = buffer
+                .as_host()
+                .and_then(|bytes| bytes.get(..receipt.bytes_written))
+                .ok_or_else(|| {
+                    glide_dma::DmaError::Configuration(
+                        "cannot verify a checksum against non-host memory".to_string(),
+                    )
+                })?;
+            let computed = glide_dma::checksum(landed);
+            if computed != reported {
+                return Err(glide_dma::DmaError::ChecksumMismatch {
+                    expected: reported,
+                    actual: computed,
+                }
+                .into());
+            }
+        }
+
+        Ok(Some(receipt))
+    }
+
+    /// Store a value the server reads directly out of registered memory.
+    ///
+    /// Optional checksum is sent for the server to verify before storing the value.
+    #[cfg(feature = "dma")]
+    pub async fn dma_set(
+        &mut self,
+        key: &[u8],
+        buffer: &glide_dma::DmaBuffer,
+        length: usize,
+        options: &glide_dma::DmaSetOptions,
+    ) -> Result<glide_dma::TransferReceipt, redis::RedisError> {
+        let capacity = buffer.capacity();
+        if length > capacity {
+            return Err(glide_dma::DmaError::PayloadTooLarge {
+                value_bytes: length,
+                capacity,
+            }
+            .into());
+        }
+
+        let fabric = self.dma_fabric_for(buffer)?;
+        let command = glide_dma::set_command(buffer.advertisement(), key, length, options);
+
+        let receipt = self.dma_transfer(&fabric, command).await?.ok_or_else(|| {
+            glide_dma::DmaError::Protocol("dma.set returned no receipt".to_string())
+        })?;
+
+        if receipt.bytes_written != length {
+            return Err(glide_dma::DmaError::ByteCountMismatch {
+                expected: length,
+                actual: receipt.bytes_written,
+            }
+            .into());
+        }
+
+        Ok(receipt)
+    }
+
+    /// Run a DMA command, serialised and with progress driven across it.
+    #[cfg(feature = "dma")]
+    async fn dma_transfer(
+        &mut self,
+        fabric: &glide_dma::DmaFabric,
+        mut command: redis::Cmd,
+    ) -> Result<Option<glide_dma::TransferReceipt>, redis::RedisError> {
+        let slot = self.dma_slot.clone();
+        let _permit = slot.acquire().await.map_err(|_| {
+            glide_dma::DmaError::Configuration("client is shutting down".to_string())
+        })?;
+
+        let reply = {
+            let _progress = fabric.drive_progress();
+            self.send_command(&mut command, None).await?
+        };
+
+        Ok(glide_dma::parse_receipt(reply)?)
+    }
+
+    /// The fabric this buffer belongs to or an error naming what is wrong.
+    #[cfg(feature = "dma")]
+    fn dma_fabric_for(
+        &self,
+        buffer: &glide_dma::DmaBuffer,
+    ) -> Result<glide_dma::DmaFabric, redis::RedisError> {
+        let fabric = self.require_dma_fabric()?;
+        if buffer.advertisement().address != fabric.local_address() {
+            return Err(glide_dma::DmaError::Configuration(
+                "buffer is registered on a different fabric".to_string(),
+            )
+            .into());
+        }
+        Ok(fabric.clone())
+    }
+
+    /// The fabric this client opened, or an error naming what is missing.
+    #[cfg(feature = "dma")]
+    fn require_dma_fabric(&self) -> Result<&glide_dma::DmaFabric, redis::RedisError> {
+        self.dma.as_ref().ok_or_else(|| {
             glide_dma::DmaError::Configuration(
                 "this client has no DMA fabric: pass a DmaConfiguration when creating it"
                     .to_string(),
             )
-        })?;
-        fabric.register(memory)
+            .into()
+        })
     }
 
     /// Returns the configured request timeout for this client.
@@ -3260,6 +3401,8 @@ impl Client {
                 is_cluster: false,
                 #[cfg(feature = "dma")]
                 dma: None,
+                #[cfg(feature = "dma")]
+                dma_slot: Arc::new(tokio::sync::Semaphore::new(1)),
             }),
             iam_token_manager: None,
             otel_metadata: Arc::new(OTelMetadata {
@@ -3768,6 +3911,8 @@ mod tests {
                 is_cluster: false,
                 #[cfg(feature = "dma")]
                 dma: None,
+                #[cfg(feature = "dma")]
+                dma_slot: Arc::new(tokio::sync::Semaphore::new(1)),
             }),
             iam_token_manager: None,
             otel_metadata: Arc::new(OTelMetadata {

@@ -62,6 +62,37 @@ mod dma_tests {
     }
 
     #[tokio::test]
+    async fn transferring_without_a_fabric_names_the_cause() {
+        let server = RedisServer::new(ServerType::Tcp { tls: false });
+        let port = extract_port(&server.get_client_addr());
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let request = glide_core::client::ConnectionRequest {
+            addresses: vec![NodeAddress {
+                host: "127.0.0.1".to_string(),
+                port,
+            }],
+            ..Default::default()
+        };
+        let mut client = Client::new(request, None)
+            .await
+            .expect("plain client connects");
+
+        // A buffer cannot be made without a fabric, so borrow one from a
+        // standalone tcp endpoint purely to have something to pass.
+        let fabric =
+            glide_dma::DmaFabric::open(&glide_dma::FabricConfig::new(glide_dma::Provider::Tcp))
+                .expect("tcp fabric opens");
+        let mut buffer = fabric.register(vec![0u8; 4096]).expect("registers");
+
+        let error = client
+            .dma_get(b"key", &mut buffer, &glide_dma::DmaGetOptions::default())
+            .await
+            .expect_err("a client without a fabric cannot transfer");
+        assert!(error.to_string().contains("DmaConfiguration"), "{error}");
+    }
+
+    #[tokio::test]
     async fn registering_without_a_fabric_names_the_cause() {
         let server = RedisServer::new(ServerType::Tcp { tls: false });
         let port = extract_port(&server.get_client_addr());
