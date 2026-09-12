@@ -387,9 +387,10 @@ pub struct ClientShared {
     // Whether this client is in cluster mode (immutable).
     is_cluster: bool,
     // The open fabric endpoint, when DMA is configured. One per client and
-    // shared by every connection.
+    // shared by every connection: a slot costs a registered buffer, not an
+    // endpoint. Read by `register_dma_buffer`, and held for the client's
+    // lifetime because the server's inserted peer addresses point at it.
     #[cfg(feature = "dma")]
-    #[allow(dead_code)]
     dma: Option<glide_dma::DmaFabric>,
 }
 
@@ -3103,6 +3104,25 @@ impl Client {
     /// * `None` - If compression is disabled or not configured
     pub fn compression_manager(&self) -> Option<Arc<CompressionManager>> {
         self.compression_manager.clone()
+    }
+
+    /// Register memory for the server to transfer into or out of.
+    ///
+    /// Registration is expensive and pins pages against `RLIMIT_MEMLOCK`, so a
+    /// caller should register a region once and advertise windows of it per
+    /// transfer rather than registering per operation.
+    #[cfg(feature = "dma")]
+    pub fn register_dma_buffer(
+        &self,
+        memory: impl AsMut<[u8]> + Send + 'static,
+    ) -> Result<glide_dma::DmaBuffer, glide_dma::DmaError> {
+        let fabric = self.dma.as_ref().ok_or_else(|| {
+            glide_dma::DmaError::Configuration(
+                "this client has no DMA fabric: pass a DmaConfiguration when creating it"
+                    .to_string(),
+            )
+        })?;
+        fabric.register(memory)
     }
 
     /// Returns the configured request timeout for this client.

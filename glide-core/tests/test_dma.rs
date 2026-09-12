@@ -62,6 +62,30 @@ mod dma_tests {
     }
 
     #[tokio::test]
+    async fn registering_without_a_fabric_names_the_cause() {
+        let server = RedisServer::new(ServerType::Tcp { tls: false });
+        let port = extract_port(&server.get_client_addr());
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let request = glide_core::client::ConnectionRequest {
+            addresses: vec![NodeAddress {
+                host: "127.0.0.1".to_string(),
+                port,
+            }],
+            ..Default::default()
+        };
+        let client = Client::new(request, None)
+            .await
+            .expect("plain client connects");
+
+        let error = client
+            .register_dma_buffer(vec![0u8; 4096])
+            .expect_err("a client without a fabric cannot register");
+        let message = error.to_string();
+        assert!(message.contains("DmaConfiguration"), "{message}");
+    }
+
+    #[tokio::test]
     async fn a_plain_client_against_the_same_server_still_connects() {
         let server = RedisServer::new(ServerType::Tcp { tls: false });
         let port = extract_port(&server.get_client_addr());
