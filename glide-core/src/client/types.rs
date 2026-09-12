@@ -245,7 +245,7 @@ fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
 /// Convert the protobuf DMA configuration into glide-dma's own `FabricConfig`.
 #[cfg(all(feature = "proto", feature = "dma"))]
 fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
-    use crate::dma::{DmaConfig, FabricConfig, Provider};
+    use crate::dma::{FabricConfig, Provider};
 
     let Some(config) = config else {
         return DmaSetting::Absent;
@@ -267,11 +267,7 @@ fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
         Some(interface) => fabric.with_interface(interface.to_string()),
         None => fabric,
     };
-    DmaSetting::Configured(DmaConfig {
-        fabric,
-        slots: config.slots,
-        buffer_size: config.buffer_size,
-    })
+    DmaSetting::Configured(fabric)
 }
 
 #[cfg(feature = "proto")]

@@ -8,19 +8,6 @@
 #[cfg(feature = "dma")]
 pub use glide_dma::{FabricConfig, Provider};
 
-/// How to open the local fabric endpoint and how much memory to pin for it.
-#[cfg(feature = "dma")]
-#[derive(Debug, Clone)]
-pub struct DmaConfig {
-    /// The fabric to open.
-    pub fabric: FabricConfig,
-    /// DMA-capable connections. Each slot pins `buffer_size` bytes against
-    /// `RLIMIT_MEMLOCK`, so this is a resource decision, not a tuning knob.
-    pub slots: u32,
-    /// Bytes pinned per slot.
-    pub buffer_size: u64,
-}
-
 /// What a connection request asked of DMA and whether it can be honored.
 #[derive(Debug, Clone, Default)]
 pub enum DmaSetting {
@@ -31,7 +18,7 @@ pub enum DmaSetting {
     Rejected(DmaUnavailable),
     /// DMA was requested and the configuration is usable.
     #[cfg(feature = "dma")]
-    Configured(DmaConfig),
+    Configured(FabricConfig),
 }
 
 /// The reason a requested DMA configuration cannot be honored.
@@ -124,21 +111,14 @@ impl DmaSetting {
             #[cfg(feature = "dma")]
             DmaSetting::Configured(config) => {
                 let interface = config
-                    .fabric
                     .interface()
                     .map(|interface| format!(", interface: {interface}"))
                     .unwrap_or_default();
                 let bind = config
-                    .fabric
                     .bind()
                     .map(|bind| format!(", bind: {bind}"))
                     .unwrap_or_default();
-                format!(
-                    "\nDMA: {:?}{interface}{bind}, slots: {}, buffer size: {}",
-                    config.fabric.provider(),
-                    config.slots,
-                    config.buffer_size
-                )
+                format!("\nDMA: {:?}{interface}{bind}", config.provider())
             }
         }
     }
@@ -169,7 +149,7 @@ pub fn open(setting: &DmaSetting) -> Result<Option<glide_dma::DmaFabric>, DmaUna
     match setting {
         DmaSetting::Absent => Ok(None),
         DmaSetting::Rejected(reason) => Err(reason.clone()),
-        DmaSetting::Configured(config) => Ok(Some(glide_dma::DmaFabric::open(&config.fabric)?)),
+        DmaSetting::Configured(config) => Ok(Some(glide_dma::DmaFabric::open(config)?)),
     }
 }
 
@@ -268,27 +248,18 @@ mod tests {
 
     #[cfg(feature = "dma")]
     #[test]
-    fn a_configured_setting_logs_its_provider_and_sizing() {
-        let setting = DmaSetting::Configured(DmaConfig {
-            fabric: FabricConfig::new(Provider::Tcp).with_interface("lo0"),
-            slots: 4,
-            buffer_size: 1 << 20,
-        });
+    fn a_configured_setting_logs_its_provider() {
+        let setting =
+            DmaSetting::Configured(FabricConfig::new(Provider::Tcp).with_interface("lo0"));
         let summary = setting.log_summary();
         assert!(summary.contains("Tcp"), "{summary}");
         assert!(summary.contains("lo0"), "{summary}");
-        assert!(summary.contains("slots: 4"), "{summary}");
-        assert!(summary.contains("1048576"), "{summary}");
     }
 
     #[cfg(feature = "dma")]
     #[test]
     fn unset_fabric_options_are_omitted_from_the_log() {
-        let setting = DmaSetting::Configured(DmaConfig {
-            fabric: FabricConfig::new(Provider::EfaDirect),
-            slots: 1,
-            buffer_size: 1024,
-        });
+        let setting = DmaSetting::Configured(FabricConfig::new(Provider::EfaDirect));
         let summary = setting.log_summary();
         assert!(!summary.contains("interface"), "{summary}");
         assert!(!summary.contains("bind"), "{summary}");
@@ -304,11 +275,7 @@ mod tests {
     #[cfg(feature = "dma")]
     #[test]
     fn a_tcp_config_opens_a_fabric() {
-        let setting = DmaSetting::Configured(DmaConfig {
-            fabric: FabricConfig::new(Provider::Tcp),
-            slots: 1,
-            buffer_size: 1 << 20,
-        });
+        let setting = DmaSetting::Configured(FabricConfig::new(Provider::Tcp));
         assert!(validate(&setting).is_ok());
     }
 
@@ -383,11 +350,9 @@ mod tests {
     #[cfg(feature = "dma")]
     #[test]
     fn a_fabric_failure_passes_through_with_its_detail() {
-        let setting = DmaSetting::Configured(DmaConfig {
-            fabric: FabricConfig::new(Provider::Tcp).with_interface("definitely-not-a-card"),
-            slots: 1,
-            buffer_size: 1 << 20,
-        });
+        let setting = DmaSetting::Configured(
+            FabricConfig::new(Provider::Tcp).with_interface("definitely-not-a-card"),
+        );
         let error = validate(&setting).unwrap_err();
         assert!(matches!(error, DmaUnavailable::Fabric(_)), "{error:?}");
         assert!(

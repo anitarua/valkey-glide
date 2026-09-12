@@ -12,7 +12,7 @@ mod utilities;
 mod dma_tests {
     use crate::utilities::*;
     use glide_core::client::{Client, ConnectionError, NodeAddress};
-    use glide_core::dma::{DmaConfig, DmaSetting, DmaUnavailable, FabricConfig, Provider};
+    use glide_core::dma::{DmaSetting, DmaUnavailable, FabricConfig, Provider};
 
     fn extract_port(addr: &redis::ConnectionAddr) -> u16 {
         match addr {
@@ -33,13 +33,9 @@ mod dma_tests {
                 host: "127.0.0.1".to_string(),
                 port,
             }],
-            dma: DmaSetting::Configured(DmaConfig {
-                // tcp is the development provider: it opens a real endpoint
-                // without EFA hardware, which is all this test needs.
-                fabric: FabricConfig::new(Provider::Tcp),
-                slots: 1,
-                buffer_size: 1 << 20,
-            }),
+            // tcp is the development provider: it opens a real endpoint
+            // without EFA hardware, which is all this test needs.
+            dma: DmaSetting::Configured(FabricConfig::new(Provider::Tcp)),
             ..Default::default()
         };
 

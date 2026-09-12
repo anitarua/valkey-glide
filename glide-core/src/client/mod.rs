@@ -2880,7 +2880,7 @@ impl Client {
         #[cfg(feature = "dma")]
         let dma = crate::dma::open(&request.dma)?.map(|fabric| {
             let provider = match &request.dma {
-                crate::dma::DmaSetting::Configured(config) => config.fabric.provider(),
+                crate::dma::DmaSetting::Configured(config) => config.provider(),
                 _ => unreachable!("a fabric is only opened for a configured setting"),
             };
             (fabric, provider)
