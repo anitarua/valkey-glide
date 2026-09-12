@@ -386,6 +386,11 @@ pub struct ClientShared {
     current_database: Arc<AtomicU32>,
     // Whether this client is in cluster mode (immutable).
     is_cluster: bool,
+    // The open fabric endpoint, when DMA is configured. One per client and
+    // shared by every connection.
+    #[cfg(feature = "dma")]
+    #[allow(dead_code)]
+    dma: Option<glide_dma::DmaFabric>,
 }
 
 #[derive(Clone)]
@@ -2718,6 +2723,89 @@ fn sanitized_request_string(request: &ConnectionRequest) -> String {
     )
 }
 
+/// Run the DMA handshake against the connected node.
+///
+/// Sends `DMA.HELLO`, which answers with every fabric address the server may
+/// initiate transfers from, and inserts all of them into the local address
+/// vector. All of them, not one: which address serves a given transfer is the
+/// server's choice, made per operation.
+///
+/// A node without the module answers with an error rather than addresses, which
+/// is how `ServerModuleMissing` is detected -- there is no capability query to
+/// ask first.
+#[cfg(feature = "dma")]
+async fn dma_handshake(
+    client: &mut Client,
+    fabric: &glide_dma::DmaFabric,
+    provider: glide_dma::Provider,
+) -> Result<(), ConnectionError> {
+    let node = {
+        let address = &client.otel_metadata.address;
+        format!("{}:{}", address.host, address.port)
+    };
+
+    // DMA.INFO first. A provider mismatch makes peer insertion fail with an
+    // address-format error that says nothing about the real cause, so establish
+    // compatibility before handing the server anything.
+    let mut info = glide_dma::info_command();
+    let reply = client
+        .send_command(&mut info, None)
+        .await
+        .map_err(|err| dma_command_error(err, &node))?;
+    let info = glide_dma::parse_info(reply).map_err(|err| {
+        ConnectionError::Dma(crate::dma::DmaUnavailable::MalformedHandshake {
+            node: node.clone(),
+            reason: err.to_string(),
+        })
+    })?;
+    crate::dma::check_compatibility(fabric, provider, &node, &info)
+        .map_err(ConnectionError::Dma)?;
+
+    let mut hello = glide_dma::hello_command();
+    let reply = client
+        .send_command(&mut hello, None)
+        .await
+        .map_err(|err| dma_command_error(err, &node))?;
+
+    let addresses = glide_dma::parse_hello(reply).map_err(|err| {
+        ConnectionError::Dma(crate::dma::DmaUnavailable::MalformedHandshake {
+            node: node.clone(),
+            reason: err.to_string(),
+        })
+    })?;
+
+    crate::dma::insert_peers(fabric, &node, &addresses).map_err(ConnectionError::Dma)?;
+
+    log_info(
+        "DMA",
+        format!(
+            "handshake with {node} inserted {} address(es)",
+            addresses.len()
+        ),
+    );
+    Ok(())
+}
+
+/// Map a failed DMA command onto the right error.
+#[cfg(feature = "dma")]
+fn dma_command_error(err: redis::RedisError, node: &str) -> ConnectionError {
+    if is_unknown_command_error(&err) {
+        ConnectionError::Dma(crate::dma::DmaUnavailable::ServerModuleMissing {
+            node: node.to_string(),
+        })
+    } else {
+        ConnectionError::Cluster(err)
+    }
+}
+
+/// Whether the server rejected a command it does not know, which is how a
+/// missing module surfaces.
+#[cfg(feature = "dma")]
+fn is_unknown_command_error(err: &redis::RedisError) -> bool {
+    let message = err.to_string().to_ascii_lowercase();
+    message.contains("unknown command") || message.contains("unknown or disabled command")
+}
+
 /// Create a compression manager from the given configuration
 /// Returns None if compression is disabled or not configured
 fn create_compression_manager(
@@ -2773,7 +2861,26 @@ impl Client {
             ));
         }
 
-        // Validate the DMA configuration before connecting, if present.
+        // DMA requires a completed handshake before the client exists because the
+        // server must hold this client's fabric addresses before it can transfer data.
+        if request.dma.is_requested() && request.lazy_connect {
+            return Err(ConnectionError::Configuration(
+                "DMA cannot be combined with lazy_connect: DMA requires a \
+                 handshake with every node at client construction."
+                    .to_string(),
+            ));
+        }
+
+        // Open the fabric before connecting, or fail fast with the root cause.
+        #[cfg(feature = "dma")]
+        let dma = crate::dma::open(&request.dma)?.map(|fabric| {
+            let provider = match &request.dma {
+                crate::dma::DmaSetting::Configured(config) => config.fabric.provider(),
+                _ => unreachable!("a fabric is only opened for a configured setting"),
+            };
+            (fabric, provider)
+        });
+        #[cfg(not(feature = "dma"))]
         crate::dma::validate(&request.dma)?;
 
         // Add buffer to connection_timeout to allow inner connection logic to fully execute before the outer timeout triggers
@@ -2860,6 +2967,8 @@ impl Client {
                     compression_manager: compression_manager.clone(),
                     pubsub_synchronizer: pubsub_synchronizer.clone(),
                     client_side_cache,
+                    #[cfg(feature = "dma")]
+                    dma: dma.as_ref().map(|(fabric, _)| fabric.clone()),
                     latency_tracker: Arc::new(crate::timeout_watchdog::LatencyTracker::new(4096)),
                     circuit_breaker: request.client_circuit_breaker.as_ref().map(|config| {
                         let defaults = circuit_breaker::ClientCircuitBreakerConfig::default();
@@ -2974,6 +3083,12 @@ impl Client {
                 let client_guard = client_arc.read().await;
                 client_guard.clone()
             };
+
+            #[cfg(feature = "dma")]
+            if let Some((fabric, provider)) = dma.as_ref() {
+                let mut client = client.clone();
+                dma_handshake(&mut client, fabric, *provider).await?;
+            }
 
             Ok(client)
         })
@@ -3123,6 +3238,8 @@ impl Client {
                 circuit_breaker: None,
                 current_database: Arc::new(AtomicU32::new(0)),
                 is_cluster: false,
+                #[cfg(feature = "dma")]
+                dma: None,
             }),
             iam_token_manager: None,
             otel_metadata: Arc::new(OTelMetadata {
@@ -3278,6 +3395,32 @@ mod tests {
             !error.to_string().contains("compression"),
             "disabled compression must not be reported as a conflict: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_new_rejects_dma_combined_with_lazy_connect() {
+        use crate::dma::{DmaSetting, DmaUnavailable};
+
+        let request = ConnectionRequest {
+            addresses: vec![NodeAddress {
+                host: "127.0.0.1".to_string(),
+                port: 1,
+            }],
+            lazy_connect: true,
+            dma: DmaSetting::Rejected(DmaUnavailable::NotCompiledIn),
+            ..Default::default()
+        };
+
+        let error = match Client::new(request, None).await {
+            Ok(_) => panic!("DMA with lazy_connect should fail client creation"),
+            Err(error) => error,
+        };
+
+        assert!(
+            matches!(error, ConnectionError::Configuration(_)),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("lazy_connect"), "{error}");
     }
 
     #[test]
@@ -3603,6 +3746,8 @@ mod tests {
                 circuit_breaker: None,
                 current_database: Arc::new(AtomicU32::new(0)),
                 is_cluster: false,
+                #[cfg(feature = "dma")]
+                dma: None,
             }),
             iam_token_manager: None,
             otel_metadata: Arc::new(OTelMetadata {

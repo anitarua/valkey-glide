@@ -49,6 +49,61 @@ pub enum DmaUnavailable {
     #[error("DmaConfiguration requires a provider; none was set")]
     NoProviderConfigured,
 
+    /// A node did not recognise the DMA commands, so the server module is not
+    /// loaded there.
+    #[error("node {node} does not have the valkey-dma module loaded")]
+    ServerModuleMissing {
+        /// The node that answered without the module.
+        node: String,
+    },
+
+    /// Client and server are on different fabric providers, so no transfer
+    /// between them can succeed.
+    #[error("provider mismatch with node {node}: client {client}, server {server}")]
+    ProviderMismatch {
+        /// The provider this client opened.
+        client: String,
+        /// The provider the node reported through `DMA.INFO`.
+        server: String,
+        /// The node that disagreed.
+        node: String,
+    },
+
+    /// Client and server disagree on what `remote_address` means.
+    #[error(
+        "addressing mismatch with node {node}: \
+         client uses_virtual_addressing={client_virt_addr}, \
+         server uses_virtual_addressing={server_virt_addr}"
+    )]
+    AddressingMismatch {
+        /// Whether this client addresses by virtual address.
+        client_virt_addr: bool,
+        /// Whether the node addresses by virtual address.
+        server_virt_addr: bool,
+        /// The node that disagreed.
+        node: String,
+    },
+
+    /// The handshake reply could not be read.
+    #[error("node {node} returned a malformed DMA.HELLO reply: {reason}")]
+    MalformedHandshake {
+        /// The node that answered.
+        node: String,
+        /// What was wrong with the reply.
+        reason: String,
+    },
+
+    /// A node's fabric addresses could not be inserted into the local address
+    /// vector, so the server could never reach this client's memory.
+    #[cfg(feature = "dma")]
+    #[error("failed to insert fabric addresses for node {node}: {source}")]
+    PeerInsertFailed {
+        /// The node whose addresses were rejected.
+        node: String,
+        /// The fabric error underneath.
+        source: glide_dma::DmaError,
+    },
+
     /// The fabric refused the configuration.
     #[cfg(feature = "dma")]
     #[error("{0}")]
@@ -101,19 +156,96 @@ pub fn validate(setting: &DmaSetting) -> Result<(), DmaUnavailable> {
 /// Check that a requested DMA configuration can be honored before connecting.
 #[cfg(feature = "dma")]
 pub fn validate(setting: &DmaSetting) -> Result<(), DmaUnavailable> {
+    open(setting).map(|_| ())
+}
+
+/// Open the local fabric endpoint, if one was requested.
+///
+/// `Ok(None)` means DMA was not requested. The returned fabric must be retained
+/// for the client's lifetime: dropping it tears down the endpoint the server
+/// RMAs into.
+#[cfg(feature = "dma")]
+pub fn open(setting: &DmaSetting) -> Result<Option<glide_dma::DmaFabric>, DmaUnavailable> {
     match setting {
-        DmaSetting::Absent => Ok(()),
+        DmaSetting::Absent => Ok(None),
         DmaSetting::Rejected(reason) => Err(reason.clone()),
-        DmaSetting::Configured(config) => {
-            glide_dma::DmaFabric::open(&config.fabric)?;
-            Ok(())
-        }
+        DmaSetting::Configured(config) => Ok(Some(glide_dma::DmaFabric::open(&config.fabric)?)),
     }
+}
+
+/// Check that a node's fabric is compatible with this client's.
+/// Checks for provider and addressing mismatches.
+#[cfg(feature = "dma")]
+pub fn check_compatibility(
+    fabric: &glide_dma::DmaFabric,
+    provider: glide_dma::Provider,
+    node: &str,
+    info: &glide_dma::DmaInfo,
+) -> Result<(), DmaUnavailable> {
+    let reported = info
+        .provider()
+        .ok_or_else(|| DmaUnavailable::MalformedHandshake {
+            node: node.to_string(),
+            reason: "DMA.INFO reported no provider".to_string(),
+        })?;
+    if !provider.matches_reported(reported) {
+        return Err(DmaUnavailable::ProviderMismatch {
+            client: format!("{provider:?}"),
+            server: reported.to_string(),
+            node: node.to_string(),
+        });
+    }
+
+    let server_virt_addr =
+        info.uses_virtual_addressing()
+            .ok_or_else(|| DmaUnavailable::MalformedHandshake {
+                node: node.to_string(),
+                reason: "DMA.INFO did not report uses_virtual_addressing".to_string(),
+            })?;
+    let client_virt_addr = fabric.uses_virtual_addressing();
+    if server_virt_addr != client_virt_addr {
+        return Err(DmaUnavailable::AddressingMismatch {
+            client_virt_addr,
+            server_virt_addr,
+            node: node.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Insert every address a node advertised so it can reach this client's memory.
+#[cfg(feature = "dma")]
+pub fn insert_peers(
+    fabric: &glide_dma::DmaFabric,
+    node: &str,
+    addresses: &[Vec<u8>],
+) -> Result<(), DmaUnavailable> {
+    for address in addresses {
+        fabric
+            .insert_peer(address)
+            .map_err(|source| DmaUnavailable::PeerInsertFailed {
+                node: node.to_string(),
+                source,
+            })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dma")]
+    fn info_reply(lines: &[&str]) -> glide_dma::DmaInfo {
+        let reply = redis::Value::Array(
+            lines
+                .iter()
+                .map(|line| redis::Value::BulkString(line.as_bytes().to_vec().into()))
+                .collect(),
+        );
+        glide_dma::parse_info(reply).expect("test replies parse")
+    }
 
     #[test]
     fn an_absent_setting_is_accepted() {
@@ -178,6 +310,74 @@ mod tests {
             buffer_size: 1 << 20,
         });
         assert!(validate(&setting).is_ok());
+    }
+
+    #[cfg(feature = "dma")]
+    #[test]
+    fn a_matching_server_passes_the_compatibility_check() {
+        let fabric =
+            glide_dma::DmaFabric::open(&FabricConfig::new(Provider::Tcp)).expect("tcp opens");
+        let info = info_reply(&[
+            "provider: tcp",
+            &format!(
+                "uses_virtual_addressing: {}",
+                fabric.uses_virtual_addressing()
+            ),
+        ]);
+        assert!(check_compatibility(&fabric, Provider::Tcp, "node:1", &info).is_ok());
+    }
+
+    #[cfg(feature = "dma")]
+    #[test]
+    fn mismatched_providers_are_rejected() {
+        let fabric =
+            glide_dma::DmaFabric::open(&FabricConfig::new(Provider::Tcp)).expect("tcp opens");
+        let info = info_reply(&["provider: efa-direct", "uses_virtual_addressing: true"]);
+
+        let error = check_compatibility(&fabric, Provider::Tcp, "node:1", &info).unwrap_err();
+        assert!(
+            matches!(error, DmaUnavailable::ProviderMismatch { .. }),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("efa-direct"), "{error}");
+        assert!(error.to_string().contains("node:1"), "{error}");
+    }
+
+    #[cfg(feature = "dma")]
+    #[test]
+    fn an_addressing_disagreement_is_rejected() {
+        let fabric =
+            glide_dma::DmaFabric::open(&FabricConfig::new(Provider::Tcp)).expect("tcp opens");
+        let flipped = !fabric.uses_virtual_addressing();
+        let info = info_reply(&[
+            "provider: tcp",
+            &format!("uses_virtual_addressing: {flipped}"),
+        ]);
+
+        let error = check_compatibility(&fabric, Provider::Tcp, "node:1", &info).unwrap_err();
+        assert!(
+            matches!(error, DmaUnavailable::AddressingMismatch { .. }),
+            "{error:?}"
+        );
+    }
+
+    /// "Could not verify" must mean "do not proceed".
+    #[cfg(feature = "dma")]
+    #[test]
+    fn an_unreported_attribute_fails_closed() {
+        let fabric =
+            glide_dma::DmaFabric::open(&FabricConfig::new(Provider::Tcp)).expect("tcp opens");
+
+        for reply in [
+            info_reply(&["provider: tcp"]),
+            info_reply(&["uses_virtual_addressing: false"]),
+        ] {
+            let error = check_compatibility(&fabric, Provider::Tcp, "node:1", &reply).unwrap_err();
+            assert!(
+                matches!(error, DmaUnavailable::MalformedHandshake { .. }),
+                "{error:?}"
+            );
+        }
     }
 
     #[cfg(feature = "dma")]
