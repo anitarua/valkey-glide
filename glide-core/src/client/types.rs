@@ -14,7 +14,7 @@ use crate::compression::CompressionBackendType;
 use crate::compression::CompressionConfig;
 #[cfg(feature = "proto")]
 use crate::connection_request as protobuf;
-use crate::dma::{DmaSetting, DmaUnavailable};
+use crate::dma::DmaSetting;
 use crate::iam::ServiceType;
 #[cfg(feature = "proto")]
 #[allow(unused_imports)]
@@ -236,6 +236,8 @@ pub(crate) fn none_if_zero(value: u32) -> Option<u32> {
 /// Convert the protobuf DMA configuration into what this build can honor.
 #[cfg(all(feature = "proto", not(feature = "dma")))]
 fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
+    use crate::dma::DmaUnavailable;
+
     match config {
         None => DmaSetting::Absent,
         Some(_) => DmaSetting::Rejected(DmaUnavailable::NotCompiledIn),
@@ -245,7 +247,7 @@ fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
 /// Convert the protobuf DMA configuration into glide-dma's own `FabricConfig`.
 #[cfg(all(feature = "proto", feature = "dma"))]
 fn convert_dma(config: Option<&protobuf::DmaConfig>) -> DmaSetting {
-    use crate::dma::{FabricConfig, Provider};
+    use crate::dma::{DmaUnavailable, FabricConfig, Provider};
 
     let Some(config) = config else {
         return DmaSetting::Absent;
