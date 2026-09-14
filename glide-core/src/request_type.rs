@@ -1434,11 +1434,51 @@ impl RequestType {
             RequestType::SetEx => Some(cmd("SETEX")),
             RequestType::PSetEx => Some(cmd("PSETEX")),
             RequestType::SetNX => Some(cmd("SETNX")),
-            RequestType::DmaGet => Some(cmd("DMA.GET")),
-            RequestType::DmaSet => Some(cmd("DMA.SET")),
+            // DMA.GET/DMA.SET must carry an advertisement from glide-dma to be callable.
+            RequestType::DmaGet | RequestType::DmaSet => None,
             RequestType::DmaHello => Some(cmd("DMA.HELLO")),
             RequestType::DmaInfo => Some(cmd("DMA.INFO")),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RequestType;
+
+    fn command_name(request_type: RequestType) -> Option<String> {
+        let command = request_type.get_command()?;
+        Some(String::from_utf8_lossy(command.arg_idx(0)?).into_owned())
+    }
+
+    #[test]
+    fn dma_transfers_have_no_generic_command_form() {
+        // requires glide-dma to set the advertisement
+        assert!(RequestType::DmaGet.get_command().is_none());
+        assert!(RequestType::DmaSet.get_command().is_none());
+
+        // ordinary get/set commands are unaffected
+        assert_eq!(command_name(RequestType::Get).as_deref(), Some("GET"));
+        assert_eq!(command_name(RequestType::Set).as_deref(), Some("SET"));
+    }
+
+    #[test]
+    fn dma_diagnostics_still_map_to_their_commands() {
+        // these commands should still work since they don't take arguments
+        // and don't touch any registered memory
+        assert_eq!(
+            command_name(RequestType::DmaHello).as_deref(),
+            Some("DMA.HELLO")
+        );
+        assert_eq!(
+            command_name(RequestType::DmaInfo).as_deref(),
+            Some("DMA.INFO")
+        );
+    }
+
+    #[test]
+    fn an_invalid_request_is_rejected() {
+        assert!(RequestType::InvalidRequest.get_command().is_none());
     }
 }

@@ -58,6 +58,35 @@ mod dma_tests {
     }
 
     #[tokio::test]
+    async fn cluster_mode_is_rejected_at_construction() {
+        // reject before a connection or a fabric is opened
+        let request = glide_core::client::ConnectionRequest {
+            addresses: vec![NodeAddress {
+                host: "127.0.0.1".to_string(),
+                port: 1,
+            }],
+            cluster_mode_enabled: true,
+            dma: DmaSetting::Configured(FabricConfig::new(Provider::Tcp)),
+            ..Default::default()
+        };
+
+        let error = match Client::new(request, None).await {
+            Ok(_) => panic!("DMA with cluster mode must not yield a client"),
+            Err(error) => error,
+        };
+
+        let message = error.to_string();
+        assert!(
+            matches!(error, ConnectionError::Configuration(_)),
+            "expected a configuration error, got {error:?}"
+        );
+        assert!(
+            message.contains("cluster mode") && message.contains("standalone"),
+            "the message must name the conflict and the supported mode: {message}"
+        );
+    }
+
+    #[tokio::test]
     async fn transferring_without_a_fabric_names_the_cause() {
         let server = RedisServer::new(ServerType::Tcp { tls: false });
         let port = extract_port(&server.get_client_addr());

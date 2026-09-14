@@ -2876,6 +2876,15 @@ impl Client {
             ));
         }
 
+        // TODO: support DMA for cluster mode
+        if request.dma.is_requested() && request.cluster_mode_enabled {
+            return Err(ConnectionError::Configuration(
+                "DMA cannot be combined with cluster mode: DMA is supported \
+                 for standalone servers only. Use a standalone client for DMA."
+                    .to_string(),
+            ));
+        }
+
         // Open the fabric before connecting, or fail fast with the root cause.
         #[cfg(feature = "dma")]
         let dma = crate::dma::open(&request.dma)?.map(|fabric| {
