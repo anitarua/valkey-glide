@@ -551,6 +551,7 @@ pub fn is_blocking_command_name(name: &[u8], args: &[Vec<u8>]) -> bool {
     match upper.as_slice() {
         b"BLPOP" | b"BRPOP" | b"BLMOVE" | b"BZPOPMAX" | b"BZPOPMIN" | b"BRPOPLPUSH" | b"BLMPOP"
         | b"BZMPOP" | b"WAIT" | b"WAITAOF" => true,
+        b"DMA.GET" | b"DMA.SET" => true,
         // BLOCK is matched case-insensitively, mirroring `Cmd::position`.
         b"XREAD" | b"XREADGROUP" => args.iter().any(|a| a.eq_ignore_ascii_case(b"BLOCK")),
         _ => false,
@@ -576,6 +577,12 @@ fn get_request_timeout(cmd: &Cmd, default_timeout: Duration) -> RedisResult<Opti
             };
             get_timeout_from_cmd_arg(cmd, idx, TimeUnit::Milliseconds)
         }
+        // A DMA command's reply comes only after the server has finished moving the
+        // payload over the fabric, so its latency tracks the size of the value, not
+        // the round trip. The client's request timeout -- 250ms by default -- is
+        // sized for RESP and would abandon a large transfer that is progressing
+        // normally. Wait for the reply instead, as the reference integration does.
+        b"DMA.GET" | b"DMA.SET" => Ok(RequestTimeoutOption::NoTimeout),
         _ => Ok(RequestTimeoutOption::ClientConfig),
     }?;
 
@@ -3801,6 +3808,35 @@ mod tests {
     }
 
     #[test]
+    fn test_get_request_timeout_dma_transfers_have_no_timeout() {
+        // `<cmd> <address> <rkey> <remote-address> <length> <key>`
+        for name in ["DMA.GET", "DMA.SET"] {
+            let mut cmd = Cmd::new();
+            cmd.arg(name)
+                .arg("0a0b0c")
+                .arg("439041101")
+                .arg("140229324210176")
+                .arg("262144")
+                .arg("key");
+            let result = get_request_timeout(&cmd, Duration::from_millis(250)).unwrap();
+            assert_eq!(
+                result, None,
+                "{name} waits for the transfer rather than the client's timeout"
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_request_timeout_dma_handshake_keeps_the_default_timeout() {
+        for name in ["DMA.HELLO", "DMA.INFO"] {
+            let mut cmd = Cmd::new();
+            cmd.arg(name);
+            let result = get_request_timeout(&cmd, Duration::from_millis(250)).unwrap();
+            assert_eq!(result, Some(Duration::from_millis(250)), "{name}");
+        }
+    }
+
+    #[test]
     fn test_is_select_command_detects_valid_select_commands() {
         // Test detection of valid SELECT commands
         let client = create_test_client();
@@ -4331,6 +4367,37 @@ mod tests {
         let mut cmd = Cmd::new();
         cmd.arg("SET").arg("key").arg("value");
         assert!(!is_blocking_command(&cmd));
+    }
+
+    #[test]
+    fn test_dma_transfers_count_as_long_running() {
+        for name in ["DMA.GET", "DMA.SET"] {
+            let mut cmd = Cmd::new();
+            cmd.arg(name)
+                .arg("0a0b0c")
+                .arg("439041101")
+                .arg("140229324210176")
+                .arg("262144")
+                .arg("key");
+            assert!(is_blocking_command(&cmd), "{name}");
+            // The FFI hot path must agree without building a Cmd.
+            assert!(
+                is_blocking_command_name(name.as_bytes(), &[]),
+                "{name} by name"
+            );
+            assert!(
+                is_blocking_command_name(name.to_ascii_lowercase().as_bytes(), &[]),
+                "{name} lowercased"
+            );
+        }
+
+        // The handshake is an ordinary round trip with a request timeout
+        for name in ["DMA.HELLO", "DMA.INFO"] {
+            let mut cmd = Cmd::new();
+            cmd.arg(name);
+            assert!(!is_blocking_command(&cmd), "{name}");
+            assert!(!is_blocking_command_name(name.as_bytes(), &[]), "{name}");
+        }
     }
 
     #[test]
