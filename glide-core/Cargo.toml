@@ -65,6 +65,9 @@ regex = "=1.13.1"
 proto = ["protobuf"]
 # Direct memory access. Requires libfabric on the build host and at run time.
 dma = ["dep:glide-dma", "glide-dma/libfabric"]
+# Builds libfabric from source instead of requiring a system copy so `--all-features`
+# stays buildable on a bare machine. Use plain `dma` on a host with a fabric.
+dma-vendored = ["dma", "glide-dma/vendored-libfabric"]
 socket-layer = [
     "proto",
     "directories",

@@ -11,6 +11,9 @@ default = []
 # The libfabric data path. Off by default: libfabric is a native
 # dependency that is only meaningful on hosts with a fabric.
 libfabric = ["dep:ofi-libfabric-sys"]
+# Build libfabric from source rather than probing pkg-config for a system copy.
+# For hosts that have no libfabric 2.x (e.g. CI runners).
+vendored-libfabric = ["libfabric", "ofi-libfabric-sys/vendored"]
 
 [dependencies]
 crc-fast = { version = "1.10", default-features = false, features = ["std"] }
