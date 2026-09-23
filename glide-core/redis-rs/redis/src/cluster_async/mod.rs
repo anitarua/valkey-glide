@@ -484,6 +484,18 @@ where
         self.inner_core.conn_lock.read().address_for_route(&route)
     }
 
+    /// Get the address of every primary currently in the topology.
+    pub fn addresses_for_all_primaries(&self) -> Vec<String> {
+        self.inner_core
+            .conn_lock
+            .read()
+            .slot_map
+            .addresses_for_all_primaries()
+            .iter()
+            .map(|address| address.to_string())
+            .collect()
+    }
+
     /// Routes an operation request to the appropriate handler.
     async fn route_operation_request(
         &mut self,
@@ -1126,6 +1138,8 @@ mod iam_token_refresh_tests {
         provider: Option<Arc<dyn crate::client::IAMTokenProvider>>,
     ) -> GlideConnectionOptions {
         GlideConnectionOptions {
+            #[cfg(feature = "rdma")]
+            rdma_fabric: None,
             push_sender: None,
             disconnect_notifier: None,
             discover_az: false,
@@ -1585,6 +1599,8 @@ where
         let connection_retry_strategy = cluster_params.reconnect_retry_strategy.unwrap_or_default();
 
         let glide_connection_options = GlideConnectionOptions {
+            #[cfg(feature = "rdma")]
+            rdma_fabric: cluster_params.rdma_fabric.clone(),
             push_sender,
             disconnect_notifier,
             discover_az,

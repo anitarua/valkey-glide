@@ -291,7 +291,7 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .unwrap();
             logger_core::log_info(
@@ -690,7 +690,7 @@ mod standalone_client_tests {
             create_connection_request(addresses.as_slice(), &Default::default());
         block_on_all(async {
             let client_res =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .map_err(ConnectionError::Standalone);
             assert!(client_res.is_err());
@@ -730,7 +730,7 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .unwrap();
 
@@ -950,7 +950,7 @@ mod standalone_client_tests {
 
             // Test that connection works with custom root cert
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .expect("Failed to create client with custom root cert");
 
@@ -1000,7 +1000,8 @@ mod standalone_client_tests {
 
             // Connection should fail due to certificate mismatch
             let client_result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 client_result.is_err(),
                 "Expected connection to fail with wrong root certificate"
@@ -1039,7 +1040,8 @@ mod standalone_client_tests {
 
             // Client creation should fail during certificate parsing
             let client_result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 client_result.is_err(),
                 "Expected client creation to fail with invalid certificate bytes"
@@ -1069,7 +1071,8 @@ mod standalone_client_tests {
 
             // Client creation should fail due to invalid configuration
             let client_result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 client_result.is_err(),
                 "Expected client creation to fail when custom certs provided with NoTls mode"
@@ -1119,7 +1122,7 @@ mod standalone_client_tests {
 
             // Connection should succeed using the second (valid) certificate
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .expect("Failed to create client with multiple root certs");
 
@@ -1173,7 +1176,7 @@ mod standalone_client_tests {
 
             // Test that connection works with custom root cert and client TLS auth
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .expect("Failed to create client with custom root cert");
 
@@ -1222,7 +1225,7 @@ mod standalone_client_tests {
             connection_request.root_certs = vec![ca_cert_bytes.into()];
 
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .expect("Failed to create client with IP address");
 
@@ -1253,7 +1256,7 @@ mod standalone_client_tests {
             );
 
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .expect("Failed to create client with IP address");
 
@@ -1277,7 +1280,7 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .expect("unsupported CLIENT SETINFO should not prevent client creation");
 
@@ -1307,7 +1310,7 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .expect("SETINFO in the library name should not desynchronize setup responses");
 
@@ -1363,7 +1366,8 @@ mod standalone_client_tests {
         block_on_all(async {
             // This should succeed because read_only mode doesn't require a primary
             let client_result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 client_result.is_ok(),
                 "read_only mode should connect without requiring a primary node"
@@ -1390,7 +1394,7 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .unwrap();
 
@@ -1428,7 +1432,7 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let mut client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .unwrap();
 
@@ -1457,7 +1461,8 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 result.is_err(),
                 "AZAffinity should be rejected with read_only mode"
@@ -1486,7 +1491,8 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 result.is_err(),
                 "AZAffinityReplicasAndPrimary should be rejected with read_only mode"
@@ -1515,7 +1521,8 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 result.is_err(),
                 "AZAffinityAllNodes should be rejected with read_only mode"
@@ -1543,7 +1550,8 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 result.is_ok(),
                 "PreferReplica should be accepted with read_only mode"
@@ -1565,7 +1573,8 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             assert!(
                 result.is_ok(),
                 "Primary ReadFrom should be accepted with read_only mode (reads go to connected nodes)"
@@ -1587,7 +1596,7 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let _client =
-                StandaloneClient::create_client(connection_request.into(), None, None, None)
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
                     .await
                     .unwrap();
 
@@ -1612,7 +1621,8 @@ mod standalone_client_tests {
 
         block_on_all(async {
             let result =
-                StandaloneClient::create_client(connection_request.into(), None, None, None).await;
+                StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                    .await;
             // Normal mode should fail because no primary is found
             assert!(
                 result.is_err(),
@@ -1653,6 +1663,7 @@ mod standalone_client_tests {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("Primary client should connect successfully");
@@ -1663,6 +1674,7 @@ mod standalone_client_tests {
             replica_connection_request.read_only = Some(true);
             let mut replica_client = StandaloneClient::create_client(
                 replica_connection_request.into(),
+                None,
                 None,
                 None,
                 None,

@@ -441,6 +441,11 @@ pub enum RequestType {
     FtInfo = 2111,
     FtProfile = 2112,
     FtSearch = 2113,
+
+    //// RDMA commands
+    RdmaGet = 2200,
+    RdmaSet = 2201,
+    RdmaHello = 2202,
 }
 
 fn get_two_word_command(first: &str, second: &str) -> Cmd {
@@ -838,6 +843,9 @@ impl From<::protobuf::EnumOrUnknown<ProtobufRequestType>> for RequestType {
             ProtobufRequestType::SetEx => RequestType::SetEx,
             ProtobufRequestType::PSetEx => RequestType::PSetEx,
             ProtobufRequestType::SetNX => RequestType::SetNX,
+            ProtobufRequestType::RdmaGet => RequestType::RdmaGet,
+            ProtobufRequestType::RdmaSet => RequestType::RdmaSet,
+            ProtobufRequestType::RdmaHello => RequestType::RdmaHello,
             _ => RequestType::InvalidRequest,
         }
     }
@@ -1424,7 +1432,48 @@ impl RequestType {
             RequestType::SetEx => Some(cmd("SETEX")),
             RequestType::PSetEx => Some(cmd("PSETEX")),
             RequestType::SetNX => Some(cmd("SETNX")),
+            // LO.GET/LO.SET must carry a region reference from glide-rdma to be
+            // callable, and LO.HELLO must carry this client's fabric address, so
+            // none of them can be built from a bare request type.
+            RequestType::RdmaGet | RequestType::RdmaSet | RequestType::RdmaHello => None,
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RequestType;
+
+    fn command_name(request_type: RequestType) -> Option<String> {
+        let command = request_type.get_command()?;
+        Some(String::from_utf8_lossy(command.arg_idx(0)?).into_owned())
+    }
+
+    #[test]
+    fn rdma_transfers_have_no_generic_command_form() {
+        // requires glide-rdma to set the region reference
+        assert!(RequestType::RdmaGet.get_command().is_none());
+        assert!(RequestType::RdmaSet.get_command().is_none());
+
+        // ordinary get/set commands are unaffected
+        assert_eq!(command_name(RequestType::Get).as_deref(), Some("GET"));
+        assert_eq!(command_name(RequestType::Set).as_deref(), Some("SET"));
+    }
+
+    #[test]
+    fn rdma_commands_cannot_be_built_from_a_request_type_alone() {
+        for request_type in [
+            RequestType::RdmaGet,
+            RequestType::RdmaSet,
+            RequestType::RdmaHello,
+        ] {
+            assert_eq!(command_name(request_type).as_deref(), None);
+        }
+    }
+
+    #[test]
+    fn an_invalid_request_is_rejected() {
+        assert!(RequestType::InvalidRequest.get_command().is_none());
     }
 }

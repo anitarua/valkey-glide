@@ -107,9 +107,10 @@ mod dns_tests {
         // Wait to ensure server is ready before connecting.
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
-        let client = StandaloneClient::create_client(connection_request.into(), None, None, None)
-            .await
-            .ok()?;
+        let client =
+            StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                .await
+                .ok()?;
         Some((client, server))
     }
 
@@ -140,9 +141,10 @@ mod dns_tests {
         // Wait to ensure server is ready before connecting.
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
-        let client = StandaloneClient::create_client(connection_request.into(), None, None, None)
-            .await
-            .ok()?;
+        let client =
+            StandaloneClient::create_client(connection_request.into(), None, None, None, None)
+                .await
+                .ok()?;
         Some((client, server))
     }
 

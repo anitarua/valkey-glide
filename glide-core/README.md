@@ -59,6 +59,49 @@ To run [DNS tests](tests/test_dns.rs) locally:
 
 If the environment variable is not set, DNS tests will be skipped.
 
+### RDMA Tests
+
+RDMA is opt-in at build time through the `rdma` feature, which needs libfabric on both the build and runtime hosts.
+Use the `rdma-vendored` feature instead if libfabric 2.x does not exist (this is what keeps `--all-features` working on CI runners).
+
+[`tests/test_rdma.rs`](tests/test_rdma.rs) needs no fabric hardware and runs
+anywhere the feature builds.
+
+Using `rdma-vendored`:
+
+```bash
+cargo test --features "proto,socket-layer,rdma-vendored" --test test_rdma
+```
+
+Using `rdma`:
+
+```bash
+export PKG_CONFIG_PATH=/opt/amazon/efa/lib64/pkgconfig
+export LD_LIBRARY_PATH=/opt/amazon/efa/lib64
+cargo test --features "proto,socket-layer,rdma" --test test_rdma
+```
+
+[`tests/test_rdma_remote.rs`](tests/test_rdma_remote.rs) performs real transfers and
+is `#[ignore]`d because it needs a server that serves the `LO.*` commands.
+
+On a machine with an elastic fabric adapter (EFA), use the libfabric that came with it:
+
+```bash
+export PKG_CONFIG_PATH=/opt/amazon/efa/lib64/pkgconfig
+export LD_LIBRARY_PATH=/opt/amazon/efa/lib64
+export GLIDE_RDMA_SERVER=<host>:<port>
+export GLIDE_RDMA_PROVIDER=efa-direct
+cargo test --features rdma --test test_rdma_remote -- --ignored --nocapture
+```
+
+Otherwise you can use the tcp loopback:
+
+```bash
+export GLIDE_RDMA_SERVER=<host>:<port>
+export GLIDE_RDMA_PROVIDER=tcp
+cargo test --features rdma --test test_rdma_remote -- --ignored --nocapture
+```
+
 ## Timeout Watchdog Diagnostics
 
 The timeout watchdog provides structured diagnostic information when command timeouts occur. It runs on a dedicated OS thread independent of the Tokio runtime, guaranteeing timeout delivery even under runtime starvation.

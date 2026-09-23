@@ -46,6 +46,7 @@ from glide_shared import (
     ConsistencyMode,
     DataType,
     DistanceMetricType,
+    EfaDirect,
     EvictionPolicy,
     ExclusiveIdBound,
     ExecAbortError,
@@ -124,6 +125,9 @@ from glide_shared import (
     RangeByIndex,
     RangeByLex,
     RangeByScore,
+    RdmaConfiguration,
+    RdmaError,
+    RdmaProvider,
     ReadFrom,
     RequestError,
     ReturnField,
@@ -148,6 +152,7 @@ from glide_shared import (
     TagField,
     TBatch,
     TClusterResponse,
+    Tcp,
     TEncodable,
     TextField,
     TFunctionListResponse,
@@ -180,7 +185,14 @@ from glide_shared import (
 )
 
 from .client_pool import ClientPool, PoolConfig
-from .glide_client import GlideClient, GlideClusterClient, TGlideClient
+from .glide_client import (
+    GlideClient,
+    GlideClusterClient,
+    RdmaReadReceipt,
+    RdmaRegion,
+    RdmaWindow,
+    TGlideClient,
+)
 from .isolated_scope import IsolatedScope
 from .logger import Level as LogLevel
 from .logger import Logger
@@ -225,6 +237,13 @@ __all__ = [
     "ClientCircuitBreakerConfiguration",
     "CompressionBackend",
     "CompressionConfiguration",
+    "EfaDirect",
+    "RdmaConfiguration",
+    "RdmaProvider",
+    "Tcp",
+    "RdmaReadReceipt",
+    "RdmaRegion",
+    "RdmaWindow",
     "ReadFrom",
     "NodeDiscoveryMode",
     "ServerCredentials",
@@ -353,6 +372,7 @@ __all__ = [
     "ConnectionError",
     "ExecAbortError",
     "GlideError",
+    "RdmaError",
     "RequestError",
     "TimeoutError",
     "LoggerError",

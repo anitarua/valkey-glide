@@ -490,6 +490,12 @@ enum RequestType {
     FtInfo                         = 2111;
     FtProfile                      = 2112;
     FtSearch                       = 2113;
+
+    //// RDMA commands
+
+    RdmaGet                        = 2200;
+    RdmaSet                        = 2201;
+    RdmaHello                      = 2202;
 }
 
 message Command {
@@ -554,6 +560,18 @@ enum CacheMetricsType {
     TotalLookups = 5;
 }
 
+// An RDMA request means the value moves over the fabric rather than in the RESP reply.
+message RdmaCommand {
+    RequestType request_type = 1;
+    bytes key = 2;
+    uint64 registered_region_id = 3;
+    // Window within the region where the value should be stored (GET) or read from (SET).
+    uint64 offset = 4;
+    // GET buffer capacity, SET payload length.
+    uint64 length = 5;
+    bool checksum = 6;
+}
+
 message CommandRequest {
     uint32 callback_idx = 1;
 
@@ -566,6 +584,7 @@ message CommandRequest {
         UpdateConnectionPassword update_connection_password = 7;
         RefreshIamToken refresh_iam_token = 8;
         GetCacheMetrics get_cache_metrics = 9;
+        RdmaCommand rdma_command = 12;
     }
     Routes route = 10;
     optional uint64 root_span_ptr = 11;

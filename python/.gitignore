@@ -161,8 +161,12 @@ protoc-*.zip
 # python build artifact folders
 glide-sync/ffi
 glide-sync/glide-core
+glide-sync/glide-rdma
 glide-sync/logger_core
 glide-sync/glide_shared
+# Records the cargo features the staged FFI library was built with, so a build
+# with different ones replaces it. Generated beside the library it describes.
+glide-shared/glide_shared/libglide_ffi.features
 glide-async/python/glide_shared
 
 # Copied README files for packaging

@@ -17,6 +17,7 @@
 #
 # Environment Variables:
 # - `GLIDE_SYNC_RELEASE=1` — Enables release mode and triggers vendoring during sdist creation.
+# - `GLIDE_SYNC_RDMA=1` — Builds the FFI layer with RDMA support.
 #
 # Typical usage:
 #   python setup.py build_ext      # Build the Rust shared library
@@ -61,6 +62,10 @@ VENDORED_DEPENDENCIES = {
     "glide-core": VendorFolder(
         source=ROOT.parent.parent / "glide-core",
         dist=ROOT / "glide-core",
+    ),
+    "glide-rdma": VendorFolder(
+        source=ROOT.parent.parent / "glide-rdma",
+        dist=ROOT / "glide-rdma",
     ),
     "logger_core": VendorFolder(
         source=ROOT.parent.parent / "logger_core",
@@ -183,10 +188,20 @@ class build_ext(build_ext_orig):
             }
         )
 
+        # RDMA is a preview feature and opt-in at build time: a default install
+        # must not need libfabric or a fabric-capable host.
+        rdma = os.environ.get("GLIDE_SYNC_RDMA", "0") == "1"
+        cargo_cmd = ["cargo", "build"] + (["--release"] if release else [])
+        if rdma:
+            cargo_cmd += ["--features", "rdma"]
+
         ffi_path = VENDORED_DEPENDENCIES["ffi"].dist
-        print(f"[INFO] Building Rust FFI lib with cargo in {ffi_path}")
+        print(
+            f"[INFO] Building Rust FFI lib with cargo in {ffi_path}"
+            f"{' (RDMA enabled)' if rdma else ''}"
+        )
         subprocess.run(
-            ["cargo", "build"] + (["--release"] if release else []),
+            cargo_cmd,
             cwd=ffi_path,
             env=env,
             check=True,

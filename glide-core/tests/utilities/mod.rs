@@ -912,10 +912,15 @@ pub(crate) async fn setup_test_basics_internal(configuration: &TestConfiguration
     connection_request.cluster_mode_enabled = false;
     connection_request.protocol = configuration.protocol.into();
     let (push_sender, push_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let client =
-        StandaloneClient::create_client(connection_request.into(), Some(push_sender), None, None)
-            .await
-            .unwrap();
+    let client = StandaloneClient::create_client(
+        connection_request.into(),
+        Some(push_sender),
+        None,
+        None,
+        Default::default(),
+    )
+    .await
+    .unwrap();
 
     TestBasics {
         server,

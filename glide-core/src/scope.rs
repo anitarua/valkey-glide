@@ -471,6 +471,10 @@ async fn build_scope_connection(
 
     let redis_client = redis::Client::open(url.as_str()).map_err(ScopeCreateError::InvalidUrl)?;
     let opts = redis::GlideConnectionOptions {
+        // An isolated scope's connection never carries a transfer -- those go
+        // through the client's own connections -- so it needs no session.
+        #[cfg(feature = "rdma")]
+        rdma_fabric: None,
         push_sender: None,
         disconnect_notifier: None,
         discover_az: false,

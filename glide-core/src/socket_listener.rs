@@ -834,6 +834,9 @@ fn handle_request(request: CommandRequest, mut client: Client, writer: Rc<Writer
                         Err(e) => Err(e),
                     }
                 }
+                command_request::Command::RdmaCommand(_) => Err(ClientUsageError::Internal(
+                    "RDMA is not yet implemented".to_string(),
+                )),
             },
             None => {
                 log_debug(
