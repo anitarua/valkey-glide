@@ -8,6 +8,8 @@ authors = ["Valkey GLIDE Maintainers"]
 [features]
 default = ["pool-support"]
 pool-support = []
+# RDMA over EFA. libfabric is dynamically linked at runtime.
+rdma = ["dep:glide-rdma", "glide-core/rdma"]
 
 [lib]
 crate-type = ["staticlib", "rlib", "cdylib"]
@@ -19,6 +21,7 @@ dashmap = "~6.2.1"
 protobuf = { version = "3", features = [] }
 redis = { path = "../glide-core/redis-rs/redis", features = ["aio", "tokio-comp", "tokio-rustls-comp"] }
 glide-core = { path = "../glide-core", features = ["proto"] }
+glide-rdma = { path = "../glide-rdma", optional = true }
 tokio = { version = "^1", features = ["rt", "macros", "rt-multi-thread", "time"] }
 logger_core = { path = "../logger_core" }
 tracing = "0.1"
