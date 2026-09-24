@@ -16,6 +16,8 @@ import pytest
 from glide_shared.config import (
     GlideClientConfiguration,
     GlideClusterClientConfiguration,
+    RdmaConfiguration,
+    RdmaProvider,
 )
 from glide_shared.routes import AllNodes
 from glide_sync.client_pool import ClientPool, PoolConfig
@@ -489,6 +491,22 @@ class TestPoolPubsubRejection:
             ),
         )
         with pytest.raises(ValueError, match="pubsub"):
+            ClientPool(config, PoolConfig(max_size=2, min_idle=1))
+
+
+class TestPoolRdmaRejection:
+    """Pool creation should reject configs with RDMA."""
+
+    @pytest.mark.parametrize(
+        "config_class", [GlideClientConfiguration, GlideClusterClientConfiguration]
+    )
+    def test_pool_rejects_rdma_config(self, config_class):
+        """Refused before any client is created, so no server is needed."""
+        config = config_class(
+            addresses=[_get_standalone_address()],
+            rdma=RdmaConfiguration(provider=RdmaProvider.Tcp()),
+        )
+        with pytest.raises(ValueError, match="RDMA"):
             ClientPool(config, PoolConfig(max_size=2, min_idle=1))
 
 

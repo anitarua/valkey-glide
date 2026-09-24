@@ -163,7 +163,11 @@ glide-sync/ffi
 glide-sync/glide-core
 glide-sync/glide-logger
 glide-sync/glide-telemetry
+glide-sync/glide-rdma
 glide-sync/glide_shared
+# Records the cargo features the staged FFI library was built with, so a build
+# with different ones replaces it. Generated beside the library it describes.
+glide-shared/glide_shared/libglide_ffi.features
 glide-async/python/glide_shared
 
 # Copied README files for packaging
