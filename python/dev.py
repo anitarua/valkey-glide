@@ -228,7 +228,29 @@ def copy_readme_to_package(package_dir: Path) -> None:
     copy2(source, dest)
 
 
-def install_glide_shared(env: Dict[str, str], release: bool = False) -> None:
+# Records which cargo features the staged FFI library was built with, so a
+# later build with different ones replaces it instead of reusing it.
+FFI_FEATURES_MARKER = "libglide_ffi.features"
+
+
+def _staged_ffi_features() -> str:
+    """The features the staged FFI library was built with, or "" if unknown."""
+    marker = SHARED_PACKAGE_DIR / FFI_FEATURES_MARKER
+    try:
+        return marker.read_text().strip()
+    except OSError:
+        # No marker means a library staged before this was tracked, which can
+        # only have been a default build.
+        return ""
+
+
+def _record_staged_ffi_features(features: str) -> None:
+    (SHARED_PACKAGE_DIR / FFI_FEATURES_MARKER).write_text(features)
+
+
+def install_glide_shared(
+    env: Dict[str, str], release: bool = False, ffi_features: str = ""
+) -> None:
     cmd = [str(venv_ctx["python_exe"]), "-m", "maturin", "develop", "--locked"]
     if release:
         cmd += ["--release"]
@@ -247,7 +269,7 @@ def install_glide_shared(env: Dict[str, str], release: bool = False) -> None:
     try:
         ffi_lib_path = find_libglide_ffi(ffi_output_dir)
         dest = SHARED_PACKAGE_DIR / ffi_lib_path.name
-        needs_build = not dest.exists()
+        needs_build = not dest.exists() or _staged_ffi_features() != ffi_features
     except FileNotFoundError:
         needs_build = True
         dest = None
@@ -263,15 +285,18 @@ def install_glide_shared(env: Dict[str, str], release: bool = False) -> None:
         ]
         if release:
             ffi_build_cmd += ["--release"]
+        if ffi_features:
+            ffi_build_cmd += ["--features", ffi_features]
         run_command(
             ffi_build_cmd,
             cwd=FFI_DIR,
             env=shared_env,
-            label="build FFI library",
+            label=f"build FFI library{f' ({ffi_features})' if ffi_features else ''}",
         )
         ffi_lib_path = find_libglide_ffi(ffi_output_dir)
         dest = SHARED_PACKAGE_DIR / ffi_lib_path.name
         copy2(ffi_lib_path, dest)
+        _record_staged_ffi_features(ffi_features)
 
 
 def build_async_client_wheel(
@@ -331,6 +356,7 @@ def build_async_client(
     no_cache: bool = False,
     wheel: bool = False,
     features: Optional[str] = None,
+    ffi_features: str = "",
 ) -> None:
     print(
         f"[INFO] Building async client with version={glide_version} in {'release' if release else 'debug'} mode..."
@@ -344,7 +370,7 @@ def build_async_client(
             "GLIDE_VERSION": glide_version,
         }
     )
-    install_glide_shared(env, release=release)
+    install_glide_shared(env, release=release, ffi_features=ffi_features)
     generate_protobuf_files()
 
     if wheel:
@@ -399,13 +425,21 @@ def build_sync_client_wheel(env: Dict[str, str]) -> None:
 
 
 def build_sync_client(
-    glide_version: str, release: bool, no_cache: bool, wheel: bool = False
+    glide_version: str,
+    release: bool,
+    no_cache: bool,
+    wheel: bool = False,
+    ffi_features: str = "",
 ) -> None:
     print(
         f"[INFO] Building sync client with version={glide_version} in {'release' if release else 'debug'} mode..."
     )
-    generate_protobuf_files()
+    # The venv comes first: protobuf generation runs protoc-gen-mypy out of it,
+    # so generating beforehand fails on a host that has no venv yet. Building
+    # every client hides this, because the async build creates the venv before
+    # this one runs.
     env = activate_venv(no_cache)
+    generate_protobuf_files()
     env["GLIDE_VERSION"] = glide_version
     if release:
         env["RELEASE_MODE"] = "1"
@@ -419,10 +453,14 @@ def build_sync_client(
             env=env,
         )
 
+    if ffi_features:
+        # setup.py reads this for the sdist/wheel path.
+        env["GLIDE_SYNC_RDMA"] = "1"
+
     if wheel:
         return build_sync_client_wheel(env)
 
-    install_glide_shared(env, release=release)
+    install_glide_shared(env, release=release, ffi_features=ffi_features)
     env.update(
         {  # Update it with your GLIDE variables
             "GLIDE_VERSION": glide_version,
@@ -432,6 +470,8 @@ def build_sync_client(
     build_args = ["cargo", "rustc", "--lib", "--crate-type", "cdylib", "--locked"]
     if release:
         build_args += ["--release"]
+    if ffi_features:
+        build_args += ["--features", ffi_features]
 
     run_command(
         build_args,
@@ -585,6 +625,7 @@ Examples:
     python dev.py build                                   # Build the async client in debug mode
     python dev.py build --client async --mode release     # Build the async client in release mode
     python dev.py build --client sync                     # Build the sync client
+    python dev.py build --client sync --rdma              # Build the sync client with RDMA
     python dev.py protobuf                                # Generate Python protobuf files (.py and .pyi)
     python dev.py lint                                    # Run Python linters
     python dev.py test                                    # Run all tests
@@ -635,6 +676,11 @@ Examples:
     build_parser.add_argument(
         "--features", help="Comma separated list of features for maturin", default=""
     )
+    build_parser.add_argument(
+        "--rdma",
+        action="store_true",
+        help="Build the FFI library with RDMA support (sync client only).",
+    )
 
     subparsers.add_parser(
         "protobuf", help="Generate Python protobuf files including .pyi stubs"
@@ -679,12 +725,15 @@ Examples:
         no_cache = args.no_cache
         wheel = args.wheel
         features = args.features
+        ffi_features = "rdma" if args.rdma else ""
         if args.client in (ClientTarget.ASYNC, ClientTarget.ALL):
             print(f"🛠 Building async client ({args.mode} mode)...")
-            build_async_client(version, release, no_cache, wheel, features)
+            build_async_client(
+                version, release, no_cache, wheel, features, ffi_features
+            )
         if args.client in (ClientTarget.SYNC, ClientTarget.ALL):
             print(f"🛠 Building sync client ({args.mode} mode)...")
-            build_sync_client(version, release, no_cache, wheel)
+            build_sync_client(version, release, no_cache, wheel, ffi_features)
 
     elif args.command == "protobuf":
         print("📦 Generating protobuf Python files...")

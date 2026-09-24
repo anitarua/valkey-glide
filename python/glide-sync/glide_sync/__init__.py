@@ -126,6 +126,9 @@ from glide_shared import (
     RangeByIndex,
     RangeByLex,
     RangeByScore,
+    RdmaConfiguration,
+    RdmaError,
+    RdmaProvider,
     ReadFrom,
     RequestError,
     ReturnField,
@@ -182,7 +185,14 @@ from glide_shared import (
 )
 
 from .client_pool import ClientPool, PoolConfig
-from .glide_client import GlideClient, GlideClusterClient, TGlideClient
+from .glide_client import (
+    GlideClient,
+    GlideClusterClient,
+    RdmaReadReceipt,
+    RdmaRegion,
+    RdmaWindow,
+    TGlideClient,
+)
 from .isolated_scope import IsolatedScope
 from .logger import Level as LogLevel
 from .logger import Logger
@@ -227,6 +237,11 @@ __all__ = [
     "ClientCircuitBreakerConfiguration",
     "CompressionBackend",
     "CompressionConfiguration",
+    "RdmaConfiguration",
+    "RdmaProvider",
+    "RdmaReadReceipt",
+    "RdmaRegion",
+    "RdmaWindow",
     "ReadFrom",
     "NodeDiscoveryMode",
     "ServerCredentials",
@@ -357,6 +372,7 @@ __all__ = [
     "ConnectionError",
     "ExecAbortError",
     "GlideError",
+    "RdmaError",
     "RequestError",
     "TimeoutError",
     "LoggerError",
